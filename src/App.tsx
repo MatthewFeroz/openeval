@@ -3,7 +3,7 @@ import { publicAuth, type AppAuth } from './auth'
 import { Signup } from './Signup'
 import { STATIC_SITE } from './deployment'
 import { LandingHero } from './landing/LandingHero'
-import { RunDatabase } from './landing/RunDatabase'
+import { RunDatabaseSection } from './landing/RunDatabaseSection'
 import { StudiesRail } from './landing/StudiesRail'
 import { useSectionMotion } from './landing/useSectionMotion'
 import { Brand, SiteHeader } from './components/SiteHeader'
@@ -32,7 +32,7 @@ function Footer() {
     <footer className="footer shell">
       <Brand />
       <p>A workbench for understanding coding-agent evaluations.</p>
-      <div><a href="#methodology">Methodology</a><a href="/library">Library</a><a href="/explore">Explore</a><a href="/settings">Settings</a><a href="https://github.com/MatthewFeroz/openeval" target="_blank" rel="noreferrer">GitHub</a></div>
+      <div><a href="#methodology">Methodology</a><a href="/library">Library</a><a href="/explore">Explore</a><a href="/settings">Settings</a><a href="/privacy-policy">Privacy</a><a href="/terms-of-service">Terms</a><a href="https://github.com/MatthewFeroz/openeval" target="_blank" rel="noreferrer">GitHub</a></div>
       <small>© 2026 OpenEval</small>
     </footer>
   )
@@ -46,7 +46,7 @@ export default function App({ auth = publicAuth }: { auth?: AppAuth }) {
       <SiteHeader auth={auth} />
       <main id="top">
         <LandingHero />
-        <RunDatabase />
+        <RunDatabaseSection />
         <StudiesRail />
         <Methodology />
         {!STATIC_SITE && <Signup />}
