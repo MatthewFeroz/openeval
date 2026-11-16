@@ -1,5 +1,5 @@
 {
-  "statsAsOf": "2026-09-30",
+  "statsAsOf": "2026-10-28",
   "studies": [
     {
       "id": "swe-lite-harnesses",
@@ -10,8 +10,8 @@
       "posterAlt": "Completion rate, cost per success, and median time for DeepSeek V4.1 Flash in five coding-agent harnesses",
       "xPostId": "2105296717432135759",
       "xUrl": "https://x.com/merge_api/status/2105296717432135759",
-      "views": 26788,
-      "likes": 292
+      "views": 39431,
+      "likes": 402
     },
     {
       "id": "open-weight-vs-sonnet",
@@ -22,8 +22,20 @@
       "posterAlt": "Completion rate, cost per success, and median time for five open-weight models and Claude Sonnet 5",
       "xPostId": "2099853277600895375",
       "xUrl": "https://x.com/merge_api/status/2099853277600895375",
-      "views": 28616,
-      "likes": 345
+      "views": 28876,
+      "likes": 344
+    },
+    {
+      "id": "mcp-atlas-six-models",
+      "headline": "Claude Opus 5.5 led on MCP tools, and MiMo cost 8x less",
+      "detail": "Six models on 30 MCP-Atlas tasks, all in Claude Code",
+      "published": "2026-10-08",
+      "poster": "/studies/mcp-atlas-six-models.jpg",
+      "posterAlt": "Completion rate, mean cost, and median time for six models on 30 MCP-Atlas tasks in Claude Code",
+      "xPostId": "2108286508721394151",
+      "xUrl": "https://x.com/merge_api/status/2108286508721394151",
+      "views": 3714,
+      "likes": 58
     }
   ]
 }
