@@ -83,7 +83,10 @@ export function readTrial(dir: string, catalog?: Catalog | null, opts: ReadOptio
   const usage = (res.agent_result ?? {}) as Json
   const exc = res.exception_info as Json | null
 
-  const reward = findReward(res.verifier_result) ?? 0
+  // Since Harbor 0.25 the verifier also runs after errors such as provider rate
+  // limits, and the result marks that reward invalid. Score it as 0, as Harbor
+  // 0.24 did when it skipped verification after those errors.
+  const reward = res.reward_valid === false ? 0 : findReward(res.verifier_result) ?? 0
   const inputTokens = num(usage.n_input_tokens), outputTokens = num(usage.n_output_tokens)
   const agentSeconds = seconds(res.agent_execution)
   const error = exc ? (str(exc.exception_type) ?? 'error') : null

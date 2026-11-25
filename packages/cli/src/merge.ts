@@ -56,6 +56,9 @@ export function mergeAgent(harness: string, model: string) {
     model_providers: { 'merge-gateway': { name: 'Merge Gateway', base_url: openai, env_key: 'OPENAI_API_KEY', wire_api: 'responses', supports_websockets: false } },
   }
   if (harness === 'pi') kwargs.model_api = 'openai-completions'
+  // Harbor 0.24 always disabled Grok's server-side web search; 0.25+ enables it
+  // on public networks. Keep it off so results stay comparable across versions.
+  if (harness === 'grok-build') kwargs.disable_web_search = true
   if (harness === 'grok-build') kwargs.grok_config = {
     models: { default: model, session_summary: model, image_description: model, web_search: model },
     model: { [model]: { name: model, model, base_url: openai, env_key: 'OPENAI_API_KEY', api_backend: 'chat_completions' } },
@@ -63,7 +66,10 @@ export function mergeAgent(harness: string, model: string) {
   // Harbor's passthrough adapters split the first provider prefix. Preserve
   // the complete Merge slug as the model sent on the wire.
   const model_name = ['pi', 'opencode', 'grok-build'].includes(harness) ? `openai/${model}` : model
-  return { name: harness, ...(harness === 'deep-agents' ? { import_path: 'heval_agents:DeepAgents' } : {}), model_name, kwargs, env: harness === 'claude-code'
+  // Since Harbor 0.25, Claude Code drops a model's vendor prefix and sends the
+  // key as a bearer token for non-Anthropic vendors. Merge routes by the full
+  // slug, so keep the model string and API key header unchanged.
+  return { name: harness, ...(harness === 'deep-agents' ? { import_path: 'heval_agents:DeepAgents' } : {}), ...(harness === 'claude-code' ? { skip_model_parsing: true } : {}), model_name, kwargs, env: harness === 'claude-code'
     ? { ANTHROPIC_BASE_URL: anthropic }
     : { OPENAI_BASE_URL: openai } }
 }

@@ -25,28 +25,58 @@ Browser on laptop / another browser session
 
 Your browser doesn't need to stay open. Each machine runs a small polling daemon; a separate local supervisor owns each Harbor execution. Closing/restarting the polling daemon does not terminate that supervisor. The daemon reconnects to the same run; repeated delivery attempts save one result. A machine reboot interrupts execution; a run is never automatically repeated on another machine.
 
-The current source pin is Harbor 0.24.0. It is covered by the required
+The current source pin is Harbor 0.27.0. It is covered by the required
 connected-evaluation CI job, which runs the setup profile through a live daemon,
 Harbor and Docker and verifies the resulting combined report. Older archived
 manual smoke evidence may still record the Harbor version used when it was
 captured.
 
-This pin applies to CLI 0.3.0 and later. The earlier `@mattferoz/heval@0.2.0`
-requires Harbor 0.23.0, so install CLI 0.3.0 before upgrading an existing worker
-to Harbor 0.24.0.
+The runner accepts only the exact Harbor version its CLI was built with. The
+published CLI 0.3.0 and 0.3.1 require Harbor 0.24.0; a CLI built from this
+revision requires 0.27.0. Upgrade Harbor and the CLI together. The earlier
+`@mattferoz/heval@0.2.0` requires Harbor 0.23.0.
 
-## Upgrading an existing worker to Harbor 0.24.0
+## Upgrading an existing worker to Harbor 0.27.0
 
 Finish or cancel active evaluations before replacing the worker runtime. Install
-CLI 0.3.0 (or a newer tarball), then rerun `openeval setup` for a managed
+a CLI built from this revision, then rerun `openeval setup` for a managed
 worker. Setup refuses to replace a container built from a different artifact;
 stop and remove only the container, preserving the worker's persistent volume,
 then rerun setup with the same name. See [worker upgrades](setup-command.md).
 For a manually prepared Linux worker, install the exact supported version with
-`uv tool install --upgrade 'harbor==0.24.0'`, then check `openeval doctor` before
+`uv tool install --upgrade 'harbor==0.27.0'`, then check `openeval doctor` before
 restarting the daemon.
 
-Harbor 0.24.0 validates built-in agent options at preflight. Review custom kwargs
+Harbor 0.25 through 0.27 change how some runs are graded and retried:
+
+- The verifier now also runs after provider errors such as rate limits or
+  server errors. Harbor marks those rewards invalid (`reward_valid: false`), and
+  OpenEval scores them as 0, as Harbor 0.24 did by skipping verification.
+  Connected runs still leave every trial that ended in an error out of the
+  saved report.
+- With retries enabled, Harbor no longer retries a nonzero agent exit, a
+  context-window overflow or a rejected request, and now retries provider
+  usage-limit errors.
+- Claude Code drops the vendor prefix from model IDs such as `zai/glm-5.3`
+  and, for non-Anthropic vendors, sends the key as a bearer token. OpenEval's
+  Merge profiles set `skip_model_parsing: true` so Merge still receives the
+  full model ID and the same API key header as under 0.24. Add it to your own
+  Harbor run templates that route Claude Code through a gateway.
+- Grok Build's server-side web search now follows the task's network policy
+  and is on for tasks with public network access. Harbor 0.24 always turned it
+  off. OpenEval's Merge profiles keep it off with `disable_web_search: true`.
+- Remote MCP servers can send HTTP headers whose values reference worker
+  environment variables, such as `Authorization: Bearer ${TOKEN}`. Claude Code
+  and Codex support them.
+- The default skills directory inside task containers moved from
+  `/harbor/skills` to `/runtime/skills`.
+
+See the upstream release notes for
+[0.25.0](https://github.com/harbor-framework/harbor/releases/tag/v0.25.0),
+[0.26.0](https://github.com/harbor-framework/harbor/releases/tag/v0.26.0) and
+[0.27.0](https://github.com/harbor-framework/harbor/releases/tag/v0.27.0).
+
+Since 0.24.0, Harbor validates built-in agent options at preflight. Review custom kwargs
 with `harbor agent schema AGENT`. It also uses each harness's own reasoning
 default when effort is omitted. Set `reasoning_effort` or `thinking` explicitly
 when comparing runs that require a fixed effort. Pi now preserves requested
@@ -55,7 +85,7 @@ images take precedence over agent images, and multi-step verifier files no
 longer leak into the next agent phase. See the
 [upstream release notes](https://github.com/harbor-framework/harbor/releases/tag/v0.24.0).
 
-Keep historical artifacts unchanged. Record Harbor 0.24.0 and the resolved
+Keep historical artifacts unchanged. Record the Harbor version and the resolved
 agent options with new evaluation snapshots; runs made under different runtime
 versions or reasoning settings are different treatments.
 
@@ -64,11 +94,11 @@ for a command-by-command walkthrough from a fresh Ubuntu worker to a saved resul
 
 ## 1. Install the preview on Linux
 
-Use a dedicated Linux machine or VM you control, with Node.js 22+, Docker Engine and Compose available to your account, Python 3.12+, and Harbor **0.24.0**. The machine must have outbound HTTPS access to your Convex deployment and any image/model providers used by its tasks. The browser never receives access to the Docker socket.
+Use a dedicated Linux machine or VM you control, with Node.js 22+, Docker Engine and Compose available to your account, Python 3.12+, and Harbor **0.27.0** (0.24.0 for the published CLI 0.3.1). The machine must have outbound HTTPS access to your Convex deployment and any image/model providers used by its tasks. The browser never receives access to the Docker socket.
 
 Docker access grants substantial control of the host. This is a personal/trusted-worker architecture, not a public sandbox for untrusted users. Approve task files and agent configuration on the worker itself. Start with one task and one attempt.
 
-CLI 0.3.0 uses Harbor 0.24.0. Its installation command is:
+The published CLI 0.3.1 uses Harbor 0.24.0. Its installation command is:
 
 ```sh
 npm install -g @mattferoz/openeval@0.3.1
@@ -98,10 +128,11 @@ openeval --help
 
 Alternatively, copy the built tarball to each machine and install it with `npm install -g /path/to/package.tgz`. No Bun dependency is required on those machines. Don't install a tarball over a different CLI version while a run is active.
 
-With `uv` installed, install the pinned Harbor version:
+With `uv` installed, install the Harbor version your CLI requires. A CLI built
+from this revision needs 0.27.0; the published 0.3.1 needs 0.24.0:
 
 ```sh
-uv tool install 'harbor==0.24.0'
+uv tool install 'harbor==0.27.0'
 harbor --version
 docker info
 docker compose version

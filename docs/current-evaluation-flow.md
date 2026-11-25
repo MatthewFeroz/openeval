@@ -4,7 +4,8 @@ OpenEval coordinates evaluations from the browser. A connected Linux runner exec
 Harbor and Docker on a worker controlled by the user. Provider credentials stay
 on the worker; profile metadata and normalized reports are stored online.
 
-1. Install the CLI, Harbor 0.24.0, and Docker
+1. Install the CLI, the Harbor version it requires (0.27.0 for source builds,
+   0.24.0 for the published CLI 0.3.1), and Docker
    Engine with Compose on Linux.
 2. Sign in to OpenEval with Clerk, open Settings, and connect the worker.
 3. Keep `openeval runner start` running and execute the no-model setup check.

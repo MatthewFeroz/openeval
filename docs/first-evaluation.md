@@ -2,8 +2,9 @@
 
 For the automated installation, see [one-command setup](setup-command.md).
 It installs Harbor and the worker runtime in Docker and opens a local pairing
-and provider form. This walkthrough prepares a worker by hand with CLI 0.3.0
-and Harbor 0.24.0.
+and provider form. This walkthrough prepares a worker by hand with a CLI built from this
+revision and Harbor 0.27.0. The published CLI 0.3.1 requires Harbor 0.24.0
+instead.
 
 This walkthrough takes you from a fresh Linux worker to a saved evaluation in
 OpenEval. The first saved report uses **Oracle**, Harbor’s reference solution,
@@ -11,7 +12,7 @@ with **no provider credentials or model calls**. You can stop after step 9.
 Steps 10–15 optionally add one model through Merge Gateway and the Codex harness.
 
 The manual installation instructions target **Ubuntu 24.04**, the **source-built OpenEval CLI**
-and **Harbor 0.24.0**.
+and **Harbor 0.27.0**.
 Other Linux distributions need different prerequisite installation commands;
 the OpenEval commands are the same.
 
@@ -165,11 +166,12 @@ Install Python and the Harbor version OpenEval expects:
 
 ```sh
 uv python install 3.12
-uv tool install --python 3.12 'harbor==0.24.0'
+uv tool install --python 3.12 'harbor==0.27.0'
 harbor --version
 ```
 
-Harbor must report `0.24.0`. The runner checks that version explicitly.
+Harbor must report `0.27.0` (`0.24.0` if you install the published CLI
+0.3.1). The runner checks that version explicitly.
 
 ## 5. Install the source-built OpenEval tarball
 

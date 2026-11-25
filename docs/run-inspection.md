@@ -62,7 +62,8 @@ this first visual stage does not execute generated applications.
 
 ## Reviewed worker artifacts
 
-The connected runner still requires Linux, Harbor 0.24.0, Docker Engine and
+The connected runner still requires Linux, Harbor 0.27.0 (0.24.0 for the
+published CLI 0.3.1), Docker Engine and
 Docker Compose as described in [connected runners](connected-runners.md).
 Automatic monitoring does not upload prompts, terminal transcripts or arbitrary
 files. To opt into explicit artifact uploads, start the updated daemon with:

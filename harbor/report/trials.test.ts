@@ -115,6 +115,15 @@ describe('Harbor exports', () => {
       expect(exportJob(root, null, { verifiedOnly: true }).rows).toHaveLength(0)
     }
   })
+  test('a reward Harbor marks invalid after an agent error does not count as a pass', () => {
+    const { dir } = fixture()
+    const graded = { verifier_result: { rewards: { reward: 1 } }, exception_info: { exception_type: 'ApiRateLimitError' } }
+    writeFileSync(join(dir, 'result.json'), JSON.stringify({ ...graded, reward_valid: false }))
+    expect(readTrial(dir, null)).toMatchObject({ reward: 0, passed: 0, error: 'ApiRateLimitError' })
+    // An agent timeout keeps its verified reward, as in Harbor 0.24.
+    writeFileSync(join(dir, 'result.json'), JSON.stringify({ ...graded, exception_info: { exception_type: 'AgentTimeoutError' }, reward_valid: true }))
+    expect(readTrial(dir, null)).toMatchObject({ reward: 1, passed: 1, timedOut: 1 })
+  })
   test('a partially written job summary cannot discard verified trial results', () => {
     const { root, dir } = fixture()
     writeFileSync(join(dir, 'result.json'), JSON.stringify({ finished_at: '2026-10-03T00:00:00Z', verifier_result: { reward: 1 } }))

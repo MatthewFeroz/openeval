@@ -19,7 +19,8 @@ Record `git rev-parse HEAD`, `git status --short`, `bun --version`,
 `docker compose version` in a private evidence directory. Record the exact
 installed CLI artifact and its SHA-256 when testing a tarball. A printed package
 version alone cannot distinguish an unreleased source build from the npm
-release of the same version. CLI 0.3.0 requires Harbor 0.24.0; the earlier
+release of the same version. Source builds from this revision require Harbor
+0.27.0; the published CLI 0.3.0 and 0.3.1 require 0.24.0, and the earlier
 `@mattferoz/heval@0.2.0` requires 0.23.0.
 
 ## Create an isolated approved profile

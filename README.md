@@ -11,7 +11,8 @@ Harbor and Docker execute tasks on a worker controlled by the user.
 
 ## Run an evaluation
 
-A connected worker needs Linux, Node.js 22+, Python 3.12+, Harbor 0.24.0, Docker
+A connected worker needs Linux, Node.js 22+, Python 3.12+, Harbor 0.27.0 (0.24.0
+for the published CLI 0.3.1), Docker
 Engine and Compose. The browser can run on a different computer or OS.
 
 Follow [Connected runners](docs/connected-runners.md) to install the runner,

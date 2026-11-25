@@ -76,10 +76,11 @@ openeval doctor --json
 openeval doctor --strict
 ```
 
-CLI 0.3.0 targets Harbor 0.24.0. The earlier `@mattferoz/heval@0.2.0` expects
-0.23.0; install 0.3.0 before upgrading a worker.
+Source builds from this revision target Harbor 0.27.0. The published CLI 0.3.0
+and 0.3.1 target Harbor 0.24.0, and the earlier `@mattferoz/heval@0.2.0` expects
+0.23.0. Upgrade the CLI and Harbor together.
 
-Doctor checks Node, Harbor **0.24.0**, Docker daemon availability, optional Bun,
+Doctor checks Node, the CLI's exact Harbor version, Docker daemon availability, optional Bun,
 and known provider credential variable names. It never prints credential
 values, installs software, or calls a model. Presence of an environment variable
 does not verify account access, provider routing, or whether a particular job
@@ -96,7 +97,7 @@ social/video rendering. SVG/PNG chart downloads run in your browser.
 Use Harbor for execution, then open its output:
 
 ```sh
-uv tool install harbor==0.24.0
+uv tool install harbor==0.27.0
 harbor run -c ./your-job.yaml --print-config
 # After configuring credentials and reviewing the job:
 harbor run -c ./your-job.yaml
@@ -151,7 +152,7 @@ link in your Windows browser. Published builds without `provider setup` retain
 the terminal commands below.
 
 The CLI supports Codex, Claude Code, OpenCode, and Pi through
-Harbor 0.24.0. These commands do not change your standalone harness settings.
+Harbor 0.27.0. These commands do not change your standalone harness settings.
 Use the same `--state /absolute/directory` on every command when overriding
 the default `~/.heval/runner` state directory.
 
@@ -217,7 +218,7 @@ harness: run the relevant smoke profiles to verify your chosen combinations.
 This preview does not extend the separate Bun web workbench's Pi-only BYOK proxy.
 
 The CLI provides `openeval runner connect`, `start`, `status`, and `cleanup`
-for Linux machines with Harbor 0.24.0 and Docker. Install with
+for Linux machines with Harbor 0.27.0 and Docker. Install with
 `npm install -g @mattferoz/openeval`. Pair through the hosted Machines page,
 then keep the daemon
 running to execute locally approved profiles and save results to your account.
