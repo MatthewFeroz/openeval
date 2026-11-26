@@ -64,13 +64,15 @@ function sectionsFor(rows: TrialRow[]): Section[] {
   // When the harness varies it is the comparison and the model is the series.
   // When it does not, the model is the comparison and there is no series -
   // `color === x` is dropped by buildChart, so this needs no special case.
-  const x = manyAgents ? 'agent' : 'modelShort'
+  // One harness and model run with different MCP setups differ only by stack.
+  const variants = byStack(rows)
+  const x = manyAgents ? 'agent' : variants ? 'stack' : 'modelShort'
   const color = manyAgents ? 'modelShort' : 'none'
 
   return [
     {
       id: 'pass-rate',
-      heading: manyAgents ? 'Pass rate by harness and model' : 'Tasks completed per model',
+      heading: manyAgents ? 'Pass rate by harness and model' : variants ? 'Tasks completed per stack' : 'Tasks completed per model',
       lede: manyAgents
         ? 'Color encodes the model and position the harness. Bars carry Wilson 95% intervals; with three trials per cell those are wide by design.'
         : 'The headline number, and the one to read most carefully: bars carry Wilson 95% intervals, and at one attempt per task those intervals are wide enough to overlap across most of the field. Ranking is fair game; declaring an adjacent pair different is not.',
@@ -177,13 +179,17 @@ function summaryTiles(rows: TrialRow[]): string {
     </div>`
 }
 
-/** One row per model, keyed to the same categorical slot the charts use. */
+/** One harness and model with several stacks, such as MCP setups: compare stacks, not models. */
+const byStack = (rows: TrialRow[]) => new Set(rows.map((r) => r.agent)).size === 1 && new Set(rows.map((r) => r.stack)).size > new Set(rows.map((r) => r.modelShort)).size
+
+/** One row per model (or per stack when MCP setups vary), keyed to the same categorical slot the charts use. */
 function modelTiles(rows: TrialRow[]): string {
-  const models = [...new Set(rows.map((r) => r.modelShort))].sort()
+  const key = byStack(rows) ? 'stack' : 'modelShort'
+  const models = [...new Set(rows.map((r) => r[key]))].sort()
   const dark = THEMES.dark
   return models
     .map((m, i) => {
-      const ts = rows.filter((r) => r.modelShort === m)
+      const ts = rows.filter((r) => r[key] === m)
       const rate = ts.filter((r) => r.passed).length / ts.length
       const costs = nums(ts, 'costUsd')
       const cost = mean(costs)
@@ -722,7 +728,7 @@ ${REPORT_CSS}
   <div class="stats">${summaryTiles(rows)}</div>
 
   <div class="block">
-    <div class="block-head"><div><span class="eyebrow">By model</span><h2>Pass rate per model</h2></div></div>
+    <div class="block-head"><div><span class="eyebrow">${byStack(rows) ? 'By stack' : 'By model'}</span><h2>${byStack(rows) ? 'Pass rate per stack' : 'Pass rate per model'}</h2></div></div>
     <div class="stats models">${modelTiles(rows)}</div>
   </div>
 
