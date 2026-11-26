@@ -15,6 +15,8 @@ export type McpSnapshot = {
   tools?: string[]
   /** First 12 hex characters of SHA-256 over the sorted tool definitions. */
   toolsHash?: string
+  /** What the agent is told about each tool: first line of its description and its parameter names. */
+  details?: { name: string; description: string; params: string[]; required: string[] }[]
   error?: string
 }
 type Server = { name: string; transport?: string; url?: string; headers?: Record<string, string> }
@@ -120,6 +122,13 @@ async function probe(server: Server, env: Record<string, string>, timeoutMs: num
       ...(typeof init.protocolVersion === 'string' ? { protocolVersion: text(init.protocolVersion, 32) } : {}),
       tools: definitions.map(tool => text(tool.name, 128)).slice(0, 200),
       toolsHash: createHash('sha256').update(JSON.stringify(definitions)).digest('hex').slice(0, 12),
+      details: definitions.slice(0, 100).map(tool => {
+        const schema = tool.inputSchema && typeof tool.inputSchema === 'object' && !Array.isArray(tool.inputSchema) ? tool.inputSchema as Json : {}
+        const properties = schema.properties && typeof schema.properties === 'object' && !Array.isArray(schema.properties) ? schema.properties as Json : {}
+        const params = Object.keys(properties).slice(0, 20).map(name => text(name, 64))
+        const required = Array.isArray(schema.required) ? (schema.required as unknown[]).map(name => text(name, 64)).filter(name => params.includes(name)) : []
+        return { name: text(tool.name, 128), description: text(String(tool.description ?? '').trim().split('\n')[0], 300), params, required }
+      }),
     }
   } catch (error) {
     // Never echo headers or URLs: either can carry credentials.

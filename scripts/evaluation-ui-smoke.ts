@@ -21,6 +21,30 @@ profiles.push({...profiles[0],id:'codex-custom-primary',model:configuredModel,ve
 profiles.push({...profiles[0],id:'codex-custom-secondary',model:configuredModel,vendor:'worker-secondary'})
 profiles.push({...profiles[1],id:'claude-custom-primary',model:configuredModel,vendor:'worker-primary'})
 profiles.push({...profiles[0],id:'codex-inherited-name',model:'constructor',vendor:'worker-primary'})
+profiles.push({
+  ...profiles[1], id: 'claude-context7', digest: 'a'.repeat(64), mcp: ['context7', 'local-files'],
+  mcpTools: {
+    probedAt: '2026-11-25T19:02:00.000Z',
+    servers: [
+      {
+        name: 'context7', status: 'ok', server: { name: 'Context7', version: '4.7.3' }, toolsHash: 'efa09f9ae72e',
+        tools: [
+          { name: 'resolve-library-id', description: 'Resolves a package name to a Context7 library ID.', params: ['query', 'libraryName'], required: ['query', 'libraryName'] },
+          { name: 'query-docs', description: 'Retrieves documentation and code examples.', params: ['libraryId', 'query', 'language'], required: ['libraryId', 'query'] },
+        ],
+      },
+      { name: 'local-files', status: 'not-probed', error: 'stdio servers start inside the task container' },
+    ],
+  },
+} as typeof profiles[number])
+profiles.push({
+  ...profiles[1], id: 'claude-failing-mcp', digest: 'b'.repeat(64), mcp: ['broken-mcp'],
+  mcpTools: {
+    probedAt: '2026-11-25T19:02:00.000Z',
+    servers: [{ name: 'broken-mcp', status: 'error', error: 'HTTP 401 for initialize' }],
+  },
+} as typeof profiles[number])
+profiles.push({ ...profiles[1], id: 'claude-unprobed-mcp', digest: 'c'.repeat(64), mcp: ['unprobed'] } as typeof profiles[number])
 const combinedData={...reportFixture,job:'My harness comparison',rows:reportFixture.rows.slice(0,1)} as ReportData
 const combinedProject=await initialReportProject(combinedData,'combined-report','My harness comparison')
 process.env.VITE_CONVEX_URL='https://wizard-test.convex.cloud'
@@ -253,6 +277,30 @@ try {
  await page.getByLabel('Serving vendor for first model').selectOption('particle')
  await page.getByLabel('Comparison name').fill('Guided comparison')
  await captureScreen('new-comparison')
+ // MCP comparison shows the side-by-side tool list for each selected setup.
+ await page.getByRole('radio',{name:/Compare MCP setups/}).check()
+ const mcpPreview=page.getByRole('region',{name:'MCP tools the agent will see'})
+ await expect(mcpPreview).toBeVisible()
+ await page.getByLabel('First MCP setup',{exact:true}).selectOption('No MCP servers')
+ await page.getByLabel('Second MCP setup',{exact:true}).selectOption('context7, local-files')
+ await expect(mcpPreview).toContainText('uses only its built-in tools')
+ await expect(mcpPreview).toContainText('Context7 4.7.3')
+ await expect(mcpPreview).toContainText('resolve-library-id')
+ await expect(mcpPreview).toContainText('libraryId, query, language?')
+ await expect(mcpPreview).toContainText('stdio · not probed')
+ await page.getByLabel('First MCP setup',{exact:true}).selectOption('broken-mcp')
+ await expect(mcpPreview).toContainText('HTTP 401 for initialize')
+ await page.getByLabel('First MCP setup',{exact:true}).selectOption('unprobed')
+ await expect(mcpPreview).toContainText('Tool list not recorded yet')
+ await page.setViewportSize({width:390,height:844})
+ assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'MCP tool list fits a narrow viewport')
+ await page.setViewportSize({width:1440,height:1000})
+ await page.getByRole('radio',{name:/Compare harnesses/}).check()
+ await page.getByLabel('First harness',{exact:true}).selectOption('codex')
+ await page.getByLabel('Second harness',{exact:true}).selectOption('pi')
+ await page.getByLabel('Model',{exact:true}).selectOption('deepseek/deepseek-v4.1-flash')
+ await page.getByLabel('Serving vendor for first model').selectOption('particle')
+ await page.getByLabel('Comparison name').fill('Guided comparison')
  const consent=page.getByRole('checkbox',{name:/I reviewed these combinations/})
  await expect(page.getByRole('button',{name:'Run comparison',exact:true})).toBeDisabled()
  await consent.check()

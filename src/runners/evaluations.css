@@ -77,3 +77,28 @@
 @media (max-width: 640px) {
   .evaluation-run-summary > button { align-self: stretch; }
 }
+
+/* Pre-run MCP tool list inside the comparison review. */
+.report-shell .mcp-map { margin: 0; padding: 16px; background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--radius-control); min-width: 0; }
+.report-shell .mcp-map-head { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 4px 12px; margin-bottom: 12px; }
+.report-shell .mcp-map-head h4 { margin: 0; font: 600 var(--type-sm) var(--sans); color: var(--white); }
+.report-shell .mcp-map-head small { margin: 0; font: var(--type-xs) var(--sans); color: var(--faint); }
+.report-shell .mcp-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: start; }
+.report-shell .mcp-col { min-width: 0; }
+.report-shell .mcp-col h5 { margin: 0 0 8px; font: 500 var(--type-xs) var(--sans); color: var(--muted); overflow-wrap: anywhere; }
+.report-shell .mcp-empty { margin: 0; padding: 12px; border: 1px dashed var(--line-strong); border-radius: var(--radius-control); color: var(--muted); font: var(--type-xs) var(--sans); overflow-wrap: anywhere; }
+.report-shell .mcp-server { border: 1px solid var(--line); border-radius: var(--radius-control); background: var(--panel); overflow: hidden; }
+.report-shell .mcp-server + .mcp-server { margin-top: 8px; }
+.report-shell .mcp-server-head { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 4px 8px; padding: 10px 12px; border-bottom: 1px solid var(--line-soft); }
+.report-shell .mcp-server-head strong { font: 600 var(--type-sm) var(--sans); color: var(--white); overflow-wrap: anywhere; }
+.report-shell .mcp-server-head span { font: var(--type-xs) var(--mono); color: var(--faint); overflow-wrap: anywhere; }
+.report-shell .mcp-server-note { margin: 0; padding: 10px 12px; font: var(--type-xs) var(--sans); color: var(--muted); overflow-wrap: anywhere; }
+.report-shell .mcp-server-error { color: var(--fail-text); }
+.report-shell .mcp-tool { padding: 8px 12px; border-top: 1px solid var(--line-soft); min-width: 0; }
+.report-shell .mcp-server-head + .mcp-tool { border-top: 0; }
+.report-shell .mcp-tool code { display: inline-block; font: 500 var(--type-xs) var(--mono); color: var(--white); background: none; padding: 0; }
+.report-shell .mcp-tool p { margin: 2px 0 0; font: var(--type-xs) var(--sans); color: var(--muted); overflow-wrap: anywhere; }
+.report-shell .mcp-tool small { display: block; margin-top: 2px; font: 11px/16px var(--mono); color: var(--faint); overflow-wrap: anywhere; }
+@media (max-width: 720px) {
+  .report-shell .mcp-cols { grid-template-columns: minmax(0, 1fr); }
+}

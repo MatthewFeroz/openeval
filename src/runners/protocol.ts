@@ -5,7 +5,12 @@ export type RunnerProfile = {
   taskSet?: string; vendor?: string; maxAttempts?: number; runSettingsVersion?: 1
   /** Names of the MCP servers the worker gives the harness. Absent means none. */
   mcp?: string[]
+  /** What those servers offered when the worker last asked. Informational; not part of the digest. */
+  mcpTools?: McpTools
 }
+export type McpTool = { name: string; description: string; params: string[]; required: string[] }
+export type McpServerTools = { name: string; status: 'ok' | 'error' | 'not-probed'; server?: { name: string; version: string }; toolsHash?: string; tools?: McpTool[]; error?: string }
+export type McpTools = { probedAt: string; servers: McpServerTools[] }
 export const MCP_SERVER_NAME = /^[A-Za-z0-9_-]{1,64}$/
 export const MAX_MCP_SERVERS = 8
 /** Readable MCP setup, e.g. `context7, github`, or `No MCP servers`. */
@@ -49,6 +54,10 @@ export function validateProfiles(profiles: RunnerProfile[]) {
     if (p.taskSet !== undefined && !/^[a-f0-9]{64}$/.test(p.taskSet)) throw new Error('Invalid task set identity.')
     if (p.vendor !== undefined && (!p.vendor.trim() || p.vendor.length > 160 || [...p.vendor].some(c => c.charCodeAt(0) < 32))) throw new Error('Invalid vendor.')
     if (p.mcp !== undefined && (!Array.isArray(p.mcp) || !p.mcp.length || p.mcp.length > MAX_MCP_SERVERS || p.mcp.some(name => typeof name !== 'string' || !MCP_SERVER_NAME.test(name)) || p.mcp.some((name, i) => i > 0 && p.mcp![i - 1] >= name))) throw new Error('Invalid MCP server names.')
+    if (p.mcpTools !== undefined) {
+      const validStatus = (status: string) => status === 'ok' || status === 'error' || status === 'not-probed'
+      if (!p.mcp?.length || typeof p.mcpTools.probedAt !== 'string' || !p.mcpTools.probedAt.trim() || p.mcpTools.probedAt.length > 64 || !Array.isArray(p.mcpTools.servers) || p.mcpTools.servers.length > MAX_MCP_SERVERS || JSON.stringify(p.mcpTools).length > 48_000 || p.mcpTools.servers.some(s => typeof s.name !== 'string' || !p.mcp!.includes(s.name) || !validStatus(s.status) || (s.tools !== undefined && (!Array.isArray(s.tools) || s.tools.length > 100)))) throw new Error('Invalid MCP tool list.')
+    }
     if (p.maxAttempts !== undefined && (!Number.isSafeInteger(p.maxAttempts) || p.maxAttempts < p.attempts || !Number.isSafeInteger(p.maxAttempts * p.tasks))) throw new Error('Invalid approved attempt limit.')
     if (![p.tasks, p.attempts, p.timeoutSeconds].every(Number.isSafeInteger) || p.tasks < 1 || p.attempts < 1 || !Number.isSafeInteger(p.tasks * p.attempts) || p.timeoutSeconds < 30) throw new Error('Profiles require positive safe integer task and attempt counts and a time limit of at least 30 seconds.')
     runTimeoutSeconds(p, p.maxAttempts ?? p.attempts)
