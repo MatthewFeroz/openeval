@@ -80,6 +80,9 @@ export function readTrial(dir: string, catalog?: Catalog | null, opts: ReadOptio
   const taskFull = str(res.task_name) ?? 'unknown'
   const model = canonicalModel(str(agentCfg.model_name) ?? str((info.model_info as Json | undefined)?.name) ?? 'unknown', agentCfg, agentEnv)
   const modelShort = model.includes('/') ? model.split('/').slice(1).join('/') : model
+  // Agent-level MCP servers are the treatment an MCP comparison varies.
+  const mcpNames = Array.isArray(agentCfg.mcp_servers) ? agentCfg.mcp_servers.flatMap(server => str((server as Json | null)?.name) ?? []).sort() : []
+  const mcp = mcpNames.length ? mcpNames.join(', ') : null
   const usage = (res.agent_result ?? {}) as Json
   const exc = res.exception_info as Json | null
 
@@ -124,7 +127,8 @@ export function readTrial(dir: string, catalog?: Catalog | null, opts: ReadOptio
     modelShort,
     provider: model.includes('/') ? model.split('/')[0] : null,
     vendor,
-    stack: `${agent} / ${modelShort}`,
+    stack: `${agent} / ${modelShort}${mcp ? ` + ${mcp}` : ''}`,
+    ...(mcp ? { mcp } : {}),
     reward,
     passed: reward >= 1 ? 1 : 0,
     agentSeconds,

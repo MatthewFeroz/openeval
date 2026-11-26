@@ -3,6 +3,14 @@ export type RunnerProfile = {
   id: string; digest: string; title: string; benchmark: string; agent: string; model: string
   tasks: number; attempts: number; timeoutSeconds: number; setupCheck: boolean
   taskSet?: string; vendor?: string; maxAttempts?: number; runSettingsVersion?: 1
+  /** Names of the MCP servers the worker gives the harness. Absent means none. */
+  mcp?: string[]
+}
+export const MCP_SERVER_NAME = /^[A-Za-z0-9_-]{1,64}$/
+export const MAX_MCP_SERVERS = 8
+/** Readable MCP setup, e.g. `context7, github`, or `No MCP servers`. */
+export function mcpLabel(profile: Pick<RunnerProfile, 'mcp'>) {
+  return profile.mcp?.length ? profile.mcp.join(', ') : 'No MCP servers'
 }
 /** Explicit overrides; omitted resources retain each benchmark task's requirements. */
 export type RunSettings = { concurrency: number; retries: number; cpus?: number; memoryMb?: number; timeoutSeconds?: number }
@@ -40,6 +48,7 @@ export function validateProfiles(profiles: RunnerProfile[]) {
     for (const label of [p.title, p.benchmark, p.agent, p.model]) if (!label.trim() || label.length > 160 || [...label].some(c => c.charCodeAt(0) < 32)) throw new Error('Use short profile labels.')
     if (p.taskSet !== undefined && !/^[a-f0-9]{64}$/.test(p.taskSet)) throw new Error('Invalid task set identity.')
     if (p.vendor !== undefined && (!p.vendor.trim() || p.vendor.length > 160 || [...p.vendor].some(c => c.charCodeAt(0) < 32))) throw new Error('Invalid vendor.')
+    if (p.mcp !== undefined && (!Array.isArray(p.mcp) || !p.mcp.length || p.mcp.length > MAX_MCP_SERVERS || p.mcp.some(name => typeof name !== 'string' || !MCP_SERVER_NAME.test(name)) || p.mcp.some((name, i) => i > 0 && p.mcp![i - 1] >= name))) throw new Error('Invalid MCP server names.')
     if (p.maxAttempts !== undefined && (!Number.isSafeInteger(p.maxAttempts) || p.maxAttempts < p.attempts || !Number.isSafeInteger(p.maxAttempts * p.tasks))) throw new Error('Invalid approved attempt limit.')
     if (![p.tasks, p.attempts, p.timeoutSeconds].every(Number.isSafeInteger) || p.tasks < 1 || p.attempts < 1 || !Number.isSafeInteger(p.tasks * p.attempts) || p.timeoutSeconds < 30) throw new Error('Profiles require positive safe integer task and attempt counts and a time limit of at least 30 seconds.')
     runTimeoutSeconds(p, p.maxAttempts ?? p.attempts)

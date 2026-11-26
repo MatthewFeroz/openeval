@@ -8,7 +8,7 @@ import { WorkspaceLayout } from '../reports/WorkspaceLayout'
 import { ReportWorkspace } from '../reports/ReportWorkspace'
 import { useAppAuth } from '../auth'
 import { message, token } from '../reports/helpers'
-import { executionTimeoutSeconds, validateRunSettings, type RunSettings, RUNNER_ONLINE_MS, terminalStates } from './protocol'
+import { executionTimeoutSeconds, validateRunSettings, type RunSettings, RUNNER_ONLINE_MS, terminalStates, mcpLabel } from './protocol'
 import { benchmarkFor } from './benchmarks'
 import './evaluations.css'
 import { LiveRunMonitor } from './LiveRunMonitor'
@@ -132,7 +132,7 @@ function Experiment({ id, now }: { id: Id<'experiments'>; now: number }) {
     {error && <p role="alert">{error}</p>}
     <section className="report-card" aria-label="Experiment results"><h2>Results by harness and model</h2><p>Expand a run to inspect its metrics and saved report. All runs use the same task snapshot; partial and failed results stay visible.</p>
       <div className="evaluation-results">{experiment.cells.map(c=><div key={c.id} className="evaluation-run-card"><details className="run-accordion">
-        <summary><span className="run-accordion-title"><strong>{agentLabel(c.profile.agent)}</strong><small>{c.profile.model}</small></span><span className="report-badge" data-tone={c.status==='completed'?'success':c.status==='failed'?'danger':undefined}>{c.status}</span><span className="run-accordion-score">{c.result ? `${c.result.passed} / ${c.result.trials} passed`:'Awaiting results'}</span></summary>
+        <summary><span className="run-accordion-title"><strong>{agentLabel(c.profile.agent)}</strong><small>{c.profile.model}{experiment.goal === 'mcp' || c.profile.mcp?.length ? ` · ${mcpLabel(c.profile)}` : ''}</small></span><span className="report-badge" data-tone={c.status==='completed'?'success':c.status==='failed'?'danger':undefined}>{c.status}</span><span className="run-accordion-score">{c.result ? `${c.result.passed} / ${c.result.trials} passed`:'Awaiting results'}</span></summary>
         <div className="run-accordion-body"><p>{c.profile.vendor} · {c.profile.tasks} tasks × {c.attempts} attempts</p><p>{c.message || c.phase}</p><p>Up to {c.runSettings?.concurrency ?? 1} parallel trials; {c.runSettings?.retries ?? 0} retries per trial error. CPU: {c.runSettings?.cpus ?? 'task default'}. RAM: {c.runSettings?.memoryMb ? `${c.runSettings.memoryMb} MiB` : 'task default'}. Deadline: {Math.ceil(executionTimeoutSeconds(c.profile, c.attempts, c.runSettings ?? undefined) / 60)} min.</p>
           <dl className="evaluation-metrics"><div><dt>Median successful task</dt><dd>{c.result?.medianSeconds != null ? `${c.result.medianSeconds.toFixed(2)} s`:'—'}</dd></div><div><dt>Reported cost*</dt><dd>{c.result?.reportedCost != null ? `$${c.result.reportedCost.toFixed(4)}`:'Unknown'}</dd></div><div><dt>Input tokens</dt><dd>{c.result?.inputTokens?.toLocaleString() ?? 'Unknown'}</dd></div><div><dt>Output tokens</dt><dd>{c.result?.outputTokens?.toLocaleString() ?? 'Unknown'}</dd></div><div><dt>Harness version</dt><dd>{c.result?.versions?.join(', ') || 'Unknown'}{c.result && c.result.additionalVersions > 0 && <><br />{c.result.additionalVersions} additional {c.result.additionalVersions === 1 ? 'version' : 'versions'} not shown. {c.report && <a href={`/reports?id=${c.report}`}>Inspect the run report</a>}</>}</dd></div></dl>
           {c.report ? <a href={`/reports?id=${c.report}`}>Inspect this run</a>:<p>Waiting for results</p>}

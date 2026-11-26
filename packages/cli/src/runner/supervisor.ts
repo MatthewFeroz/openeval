@@ -8,9 +8,10 @@ import { readJson, writeJson } from './files'
 import { mergeEnvironment } from '../merge'
 import { sampleMonitoring } from './monitoring'
 import { bundledAdapters } from './bundled-adapters'
+import { readMcpEnv, validateMcpServers } from './profiles'
 
 const exec = promisify(execFile)
-export type Execution = { claimId: string; harbor: string; timeoutSeconds: number; envFile?: string; mergeConnection?: string }
+export type Execution = { claimId: string; harbor: string; timeoutSeconds: number; envFile?: string; mcpEnvFile?: string; mergeConnection?: string }
 export type Outcome = { status: 'completed' | 'failed' | 'cancelled' | 'interrupted'; json?: string; message?: string }
 export function processKey(pid: number): string | null {
   try {
@@ -90,6 +91,14 @@ export async function supervise(directory: string) {
       if (input.envFile) throw new Error('Merge runs must not override the saved connection with envFile.')
       const config = readJson<{ agents: { name: string }[] }>(join(directory, 'harbor.json'))
       Object.assign(env, mergeEnvironment(input.mergeConnection, config.agents[0].name))
+    }
+    // Harbor fills `${NAME}` in MCP headers from its environment. Pass only the
+    // variables this run's headers reference, read at launch.
+    const agent = readJson<{ agents?: { name: string; mcp_servers?: unknown }[] }>(join(directory, 'harbor.json')).agents?.[0]
+    const mcpVariables = agent?.mcp_servers === undefined ? [] : validateMcpServers(agent.mcp_servers, agent.name).variables
+    if (mcpVariables.length) {
+      if (!input.mcpEnvFile) throw new Error('MCP headers need an MCP env file.')
+      Object.assign(env, readMcpEnv(input.mcpEnvFile, mcpVariables))
     }
     const args = ['run', '--config', join(directory, 'harbor.json')]
     if (input.envFile) args.push('--env-file', input.envFile)

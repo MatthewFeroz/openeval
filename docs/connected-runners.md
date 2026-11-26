@@ -213,6 +213,45 @@ source checkout to install the full 100-task set. Both TBLite entries are previe
 benchmarks: their pinned content is installable, but a full OpenEval evaluation has
 not yet validated them.
 
+### MCP setups
+
+**Compare MCP setups** runs one harness and model on the same tasks with two
+different sets of MCP servers, for example none against Context7. Define the
+servers on the worker in a JSON file, in Harbor's MCP server format:
+
+```json
+{ "servers": [
+  { "name": "context7", "transport": "streamable-http", "url": "https://mcp.context7.com/mcp" },
+  { "name": "github", "transport": "streamable-http", "url": "https://api.githubcopilot.com/mcp/",
+    "headers": { "Authorization": "Bearer ${GITHUB_TOKEN}" } }
+] }
+```
+
+Then run setup once without `--mcp` for the baseline and once with it:
+
+```sh
+openeval runner setup --benchmark tblite-smoke --source ~/.heval/benchmarks/openthoughts-tblite \
+  --model YOUR_MODEL_ID --harnesses claude-code
+openeval runner setup --benchmark tblite-smoke --source ~/.heval/benchmarks/openthoughts-tblite \
+  --model YOUR_MODEL_ID --harnesses claude-code --mcp ~/mcp/servers.json --mcp-env ~/mcp/tokens.env
+```
+
+Each setup becomes its own approved profile. OpenEval shows only the server
+names; URLs, commands and tokens stay on the worker. Write credentials in
+headers as `${NAME}` and put their values in the `--mcp-env` file (`NAME=value`
+lines). The runner passes Harbor only the variables those headers reference,
+when a run starts. Setup refuses literal credentials in `Authorization`, key,
+token, secret or cookie headers.
+
+- `stdio` servers run their `command` inside the task container, so the task
+  image must provide it (for example `npx` needs Node.js).
+- Remote servers need network access from the task container.
+- Claude Code and Codex support headers. OpenCode, Pi, Terminus 2 and Grok Build
+  support MCP servers without headers. Deep Agents does not support MCP.
+- Harness and model comparisons use only profiles without MCP servers, so MCP
+  can't confound them. Results label each stack with its servers, such as
+  `claude-code / claude-sonnet-5 + context7`.
+
 ### Run deadlines
 
 `timeoutSeconds` is the deadline budget for all tasks at the profile's configured

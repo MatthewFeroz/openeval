@@ -1,15 +1,76 @@
 import { existsSync, mkdirSync, cpSync, readFileSync, renameSync, rmSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
-import { validateProfiles, executionTimeoutSeconds, type RunSettings, type RunnerProfile } from '../../../../src/runners/protocol'
+import { validateProfiles, executionTimeoutSeconds, MAX_MCP_SERVERS, MCP_SERVER_NAME, type RunSettings, type RunnerProfile } from '../../../../src/runners/protocol'
 import { BENCHMARKS, type Benchmark } from '../../../../src/runners/benchmarks'
 import { fingerprintDirectory, hashDirectory, randomSecret, readJson, sha256, writeJson, type TaskExecutionMetadata, type TaskFingerprint } from './files'
 import { mergeAgent, mergePath, mergeStatus, selectMergeHarnesses } from '../merge'
 import { bundledAdapters } from './bundled-adapters'
 
 type JsonObject = Record<string, unknown>
-type Descriptor = { id: string; title: string; benchmark: string; config: string; timeoutSeconds: number; envFile?: string; maxAttempts?: number; provider?: 'merge' }
-export type LocalProfile = { public: RunnerProfile; config: JsonObject; taskPaths: string[]; taskHashes: string[]; taskExecutionMetadata: TaskExecutionMetadata[]; envFile?: string; mergeConnection?: string }
+type Descriptor = { id: string; title: string; benchmark: string; config: string; timeoutSeconds: number; envFile?: string; mcpEnvFile?: string; maxAttempts?: number; provider?: 'merge' }
+export type LocalProfile = { public: RunnerProfile; config: JsonObject; taskPaths: string[]; taskHashes: string[]; taskExecutionMetadata: TaskExecutionMetadata[]; envFile?: string; mcpEnvFile?: string; mergeConnection?: string }
 const object = (value: unknown): JsonObject => { if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Expected a JSON object in the profile.'); return value as JsonObject }
+
+/** Harbor 0.27 agents that accept MCP servers, and the subset that forwards HTTP headers. */
+export const MCP_HARNESSES = ['codex', 'claude-code', 'opencode', 'pi', 'terminus-2', 'grok-build']
+export const MCP_HEADER_HARNESSES = ['codex', 'claude-code']
+const reference = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g
+const printable = (value: unknown, max: number): value is string => typeof value === 'string' && !!value.trim() && value.length <= max && ![...value].some(c => c.charCodeAt(0) < 32)
+
+/**
+ * Check MCP servers before they reach Harbor. Credentials must be `${VAR}`
+ * references that the worker fills in at launch, never values in the profile.
+ */
+export function validateMcpServers(value: unknown, harness: string): { names: string[]; variables: string[] } {
+  if (!MCP_HARNESSES.includes(harness)) throw new Error(`${harness} cannot use MCP servers. Use one of: ${MCP_HARNESSES.join(', ')}.`)
+  if (!Array.isArray(value) || !value.length || value.length > MAX_MCP_SERVERS) throw new Error(`Use 1 to ${MAX_MCP_SERVERS} MCP servers.`)
+  const names: string[] = [], variables = new Set<string>()
+  for (const item of value) {
+    const server = object(item)
+    for (const key of Object.keys(server)) if (!['name', 'transport', 'url', 'command', 'args', 'headers'].includes(key)) throw new Error(`Unsupported MCP server field: ${key}`)
+    if (typeof server.name !== 'string' || !MCP_SERVER_NAME.test(server.name)) throw new Error('Name each MCP server with up to 64 letters, numbers, hyphens or underscores.')
+    names.push(server.name)
+    const transport = server.transport === undefined ? 'sse' : server.transport === 'http' ? 'streamable-http' : server.transport
+    if (transport === 'stdio') {
+      if (server.url !== undefined || server.headers !== undefined) throw new Error(`MCP server ${server.name}: stdio servers take command and args, not url or headers.`)
+      if (!printable(server.command, 1024)) throw new Error(`MCP server ${server.name}: give the command to run inside the task container.`)
+      if (server.args !== undefined && (!Array.isArray(server.args) || server.args.length > 64 || server.args.some(arg => typeof arg !== 'string' || arg.length > 4096 || [...arg].some(c => c.charCodeAt(0) < 32)))) throw new Error(`MCP server ${server.name}: args must be a list of strings.`)
+    } else if (transport === 'sse' || transport === 'streamable-http') {
+      if (server.command !== undefined || server.args !== undefined) throw new Error(`MCP server ${server.name}: remote servers take url and headers, not command or args.`)
+      let url: URL
+      try { url = new URL(String(server.url)) } catch { throw new Error(`MCP server ${server.name}: give an http or https url.`) }
+      if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error(`MCP server ${server.name}: give an http or https url without credentials.`)
+      if (server.headers !== undefined) {
+        const headers = object(server.headers)
+        if (Object.keys(headers).length && !MCP_HEADER_HARNESSES.includes(harness)) throw new Error(`MCP headers need ${MCP_HEADER_HARNESSES.join(' or ')}; Harbor does not forward them for ${harness}.`)
+        if (Object.keys(headers).length > 16) throw new Error(`MCP server ${server.name}: use at most 16 headers.`)
+        for (const [header, raw] of Object.entries(headers)) {
+          if (!/^[A-Za-z0-9-]{1,64}$/.test(header) || !printable(raw, 4096)) throw new Error(`MCP server ${server.name}: invalid header ${header}.`)
+          const found = [...raw.matchAll(reference)].map(match => match[1])
+          if (raw.replace(reference, '').includes('${')) throw new Error(`MCP server ${server.name}: write header variables as \${NAME}, without defaults.`)
+          if (/authorization|cookie|key|token|secret/i.test(header) && !found.length) throw new Error(`MCP server ${server.name}: put the ${header} credential in the MCP env file and reference it as \${NAME}.`)
+          found.forEach(name => variables.add(name))
+        }
+      }
+    } else throw new Error(`MCP server ${server.name}: use transport stdio, sse or streamable-http.`)
+  }
+  if (new Set(names).size !== names.length) throw new Error('Give each MCP server a different name.')
+  return { names: names.sort(), variables: [...variables].sort() }
+}
+
+/** Read only the requested variables from a KEY=VALUE env file. */
+export function readMcpEnv(file: string, variables: string[]): Record<string, string> {
+  if (readFileSync(file).length > 100_000) throw new Error('The MCP env file must be smaller than 100 KB.')
+  const values: Record<string, string> = {}
+  for (const line of readFileSync(file, 'utf8').split(/\r?\n/)) {
+    const match = line.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/)
+    if (!match || !variables.includes(match[1])) continue
+    values[match[1]] = match[2].replace(/^(['"])(.*)\1$/, '$2')
+  }
+  const missing = variables.filter(name => !values[name])
+  if (missing.length) throw new Error(`The MCP env file does not set ${missing.join(', ')}.`)
+  return values
+}
 export function initializeProfiles(directory: string, bundledTask: string) {
   const path = join(directory, 'profiles.json')
   if (existsSync(path)) return path
@@ -34,7 +95,9 @@ export function loadProfiles(file: string, connectionDirectory = dirname(file)):
     if (!Array.isArray(input.agents) || input.agents.length !== 1 || !Array.isArray(input.tasks) || !input.tasks.length) throw new Error('Approve one agent/model and one or more explicit local task directories per profile.')
     let agent = object(input.agents[0])
     if (!['oracle', 'codex', 'claude-code', 'opencode', 'pi', 'terminus-2', 'grok-build', ...(d.provider === 'merge' ? ['deep-agents'] : [])].includes(String(agent.name)) || agent.import_path) throw new Error('Use a built-in supported Harbor agent or the bundled Merge Deep Agents adapter.')
-    for (const key of Object.keys(agent)) if (!['name', 'model_name', 'kwargs', 'env', 'override_timeout_sec', 'override_setup_timeout_sec'].includes(key)) throw new Error(`Unsupported agent field: ${key}`)
+    for (const key of Object.keys(agent)) if (!['name', 'model_name', 'kwargs', 'env', 'override_timeout_sec', 'override_setup_timeout_sec', 'mcp_servers'].includes(key)) throw new Error(`Unsupported agent field: ${key}`)
+    const mcp = agent.mcp_servers === undefined ? undefined : validateMcpServers(agent.mcp_servers, String(agent.name))
+    if (d.mcpEnvFile !== undefined && !mcp?.variables.length) throw new Error('Remove mcpEnvFile, or reference its variables from MCP headers.')
     if (agent.name !== 'oracle' && (typeof agent.model_name !== 'string' || !agent.model_name)) throw new Error('A model-backed profile needs model_name.')
     const displayModel = String(agent.model_name)
     if (d.provider !== undefined && d.provider !== 'merge') throw new Error('Unsupported profile provider.')
@@ -61,13 +124,20 @@ export function loadProfiles(file: string, connectionDirectory = dirname(file)):
     // Docker's auto policy enforces declared limits, while accepting benchmark
     // tasks that omit a resource value. Explicit "limit" rejects those tasks.
     const config = { n_attempts: input.n_attempts ?? 1, n_concurrent_trials: 1, retry: { max_retries: 0 }, agents: [agent], tasks: taskPaths.map(path => ({ path })), environment: { type: 'docker', delete: true, cpu_enforcement_policy: 'auto', memory_enforcement_policy: 'auto' } }
-    const description = { runSettingsVersion: 1 as const, id: d.id, title: d.title, benchmark: d.benchmark, agent: String(agent.name), model: agent.name === 'oracle' ? 'Reference solution (no model)' : displayModel, tasks: taskPaths.length, attempts: Number(config.n_attempts), timeoutSeconds: d.timeoutSeconds, setupCheck: agent.name === 'oracle', taskSet: sha256(JSON.stringify(taskHashes)), vendor: typeof object(agent.env ?? {}).HEVAL_VENDOR === 'string' ? String(object(agent.env ?? {}).HEVAL_VENDOR) : 'Provider default', maxAttempts: d.maxAttempts ?? Number(config.n_attempts) }
+    let mcpEnvFile: string | undefined
+    if (mcp?.variables.length) {
+      if (!d.mcpEnvFile) throw new Error('MCP headers reference variables. Add mcpEnvFile with their values.')
+      mcpEnvFile = isAbsolute(d.mcpEnvFile) ? d.mcpEnvFile : resolve(dirname(file), d.mcpEnvFile)
+      if (!existsSync(mcpEnvFile)) throw new Error('The profile mcpEnvFile does not exist on this machine.')
+      readMcpEnv(mcpEnvFile, mcp.variables)
+    }
+    const description = { runSettingsVersion: 1 as const, ...(mcp ? { mcp: mcp.names } : {}), id: d.id, title: d.title, benchmark: d.benchmark, agent: String(agent.name), model: agent.name === 'oracle' ? 'Reference solution (no model)' : displayModel, tasks: taskPaths.length, attempts: Number(config.n_attempts), timeoutSeconds: d.timeoutSeconds, setupCheck: agent.name === 'oracle', taskSet: sha256(JSON.stringify(taskHashes)), vendor: typeof object(agent.env ?? {}).HEVAL_VENDOR === 'string' ? String(object(agent.env ?? {}).HEVAL_VENDOR) : 'Provider default', maxAttempts: d.maxAttempts ?? Number(config.n_attempts) }
     // Include all executable task content and agent settings, excluding local path names.
     const adapter = agent.name === 'deep-agents' ? sha256(readFileSync(join(bundledAdapters(), 'heval_agents.py'), 'utf8')) : undefined
     const digest = sha256(JSON.stringify({ description, config: { ...config, tasks: taskHashes }, taskExecutionMetadata, ...(adapter ? { adapter } : {}) }))
     let envFile: string | undefined
     if (d.envFile) { envFile = isAbsolute(d.envFile) ? d.envFile : resolve(dirname(file), d.envFile); if (!existsSync(envFile)) throw new Error('The profile envFile does not exist on this machine.') }
-    return { public: { ...description, digest }, config, taskPaths, taskHashes, taskExecutionMetadata, envFile, ...(d.provider === 'merge' ? { mergeConnection: mergePath(connectionDirectory) } : {}) }
+    return { public: { ...description, digest }, config, taskPaths, taskHashes, taskExecutionMetadata, envFile, ...(mcpEnvFile ? { mcpEnvFile } : {}), ...(d.provider === 'merge' ? { mergeConnection: mergePath(connectionDirectory) } : {}) }
   })
   validateProfiles(loaded.map(p => p.public))
   return loaded
@@ -94,9 +164,23 @@ function installBenchmark(directory: string, id: string, source: string, catalog
   return benchmark
 }
 
+export type McpSetup = { servers: unknown[]; envFile?: string }
+/** Read `runner setup --mcp`: a JSON list of Harbor MCP servers, or `{ "servers": [...] }`. */
+export function readMcpSetup(file: string, envFile?: string): McpSetup {
+  if (readFileSync(file).length > 100_000) throw new Error('The MCP server file must be smaller than 100 KB.')
+  const input = readJson<unknown>(file)
+  const servers = Array.isArray(input) ? input : object(input).servers
+  if (!Array.isArray(servers)) throw new Error('List MCP servers as a JSON array, or as { "servers": [...] }.')
+  return { servers, ...(envFile ? { envFile: resolve(envFile) } : {}) }
+}
+
 /** Add explicit smoke profiles without changing existing user-approved jobs. */
-export function setupMergeProfiles(directory: string, bundledTask: string, model: string, harnesses: string[], benchmark?: { id: string; source: string }, catalog = BENCHMARKS) {
+export function setupMergeProfiles(directory: string, bundledTask: string, model: string, harnesses: string[], benchmark?: { id: string; source: string }, catalog = BENCHMARKS, mcp?: McpSetup) {
   harnesses = selectMergeHarnesses(harnesses)
+  const mcpNames = mcp ? harnesses.map(h => validateMcpServers(mcp.servers, h))[0] : undefined
+  if (mcp?.envFile) { if (!mcpNames!.variables.length) throw new Error('--mcp-env is only needed when MCP headers reference ${NAME} variables.'); if (!existsSync(mcp.envFile)) throw new Error('The --mcp-env file does not exist.'); readMcpEnv(mcp.envFile, mcpNames!.variables) }
+  else if (mcpNames?.variables.length) throw new Error(`MCP headers reference ${mcpNames.variables.join(', ')}. Pass --mcp-env with a file that sets them.`)
+  const mcpSuffix = mcp ? `-mcp-${sha256(JSON.stringify(mcp.servers)).slice(0, 8)}` : ''
   const connection = mergeStatus(directory)
   if (!connection.connected || !connection.models.includes(model)) throw new Error('Connect Merge first and choose a model listed by provider status.')
   const path = initializeProfiles(directory, bundledTask)
@@ -105,14 +189,16 @@ export function setupMergeProfiles(directory: string, bundledTask: string, model
   const entry = benchmark && installBenchmark(directory, benchmark.id, benchmark.source, catalog)
   // Preserve existing CLI profile names while allowing additional models per harness.
   const idFor = (harness: string) => {
-    if (entry) return `${entry.id}-${harness}-${sha256(model).slice(0, 8)}`
+    if (entry) return `${entry.id}-${harness}-${sha256(model).slice(0, 8)}${mcpSuffix}`
+    if (mcp) return `merge-${harness}-${sha256(model).slice(0, 8)}${mcpSuffix}`
     const legacy = registry.profiles.find(p => p.id === `merge-${harness}`)
     if (!legacy) return `merge-${harness}`
     const config = readJson<{ agents?: { model_name?: string }[] }>(resolve(directory, legacy.config))
     return config.agents?.[0]?.model_name === model ? legacy.id : `merge-${harness}-${sha256(model).slice(0, 8)}`
   }
   const tasks = entry ? entry.taskHashes!.map(([task]) => ({ path: `benchmarks/${entry.id}/${task}` })) : [{ path: 'tasks/heval-setup' }]
-  const configFor = (harness: string) => ({ n_attempts: 1, agents: [{ name: harness, model_name: model }], tasks })
+  const configFor = (harness: string) => ({ n_attempts: 1, agents: [{ name: harness, model_name: model, ...(mcp ? { mcp_servers: mcp.servers } : {}) }], tasks })
+  const mcpTitle = mcpNames ? ` + MCP: ${mcpNames.names.join(', ')}` : ''
   for (const harness of harnesses) {
     const id = idFor(harness), existing = registry.profiles.find(p => p.id === id), config = join(directory, `${id}.json`)
     if (existing || existsSync(config)) {
@@ -123,9 +209,10 @@ export function setupMergeProfiles(directory: string, bundledTask: string, model
     const id = idFor(harness)
     if (registry.profiles.some(p => p.id === id)) continue
     writeJson(join(directory, `${id}.json`), configFor(harness))
+    const env = mcp?.envFile ? { mcpEnvFile: mcp.envFile } : {}
     registry.profiles.push(entry
-      ? { id, title: `${entry.title}: ${harness} / ${model}`, benchmark: entry.title, config: `${id}.json`, provider: 'merge', timeoutSeconds: entry.timeoutSeconds ?? 3600 }
-      : { id, title: `Merge smoke: ${harness}`, benchmark: 'OpenEval model connection smoke test', config: `${id}.json`, provider: 'merge', timeoutSeconds: 600 })
+      ? { id, title: `${entry.title}: ${harness} / ${model}${mcpTitle}`, benchmark: entry.title, config: `${id}.json`, provider: 'merge', timeoutSeconds: entry.timeoutSeconds ?? 3600, ...env }
+      : { id, title: `Merge smoke: ${harness}${mcpTitle}`, benchmark: 'OpenEval model connection smoke test', config: `${id}.json`, provider: 'merge', timeoutSeconds: 600, ...env })
   }
   writeJson(path, registry)
   return harnesses.map(idFor)

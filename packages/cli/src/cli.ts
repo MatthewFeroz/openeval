@@ -8,7 +8,7 @@ import { homedir } from 'node:os'
 import { createInterface } from 'node:readline/promises'
 import { connectRunner, runDaemon, runnerStatus, checkRunner } from './runner/client'
 import { recoverRun, supervise, type Outcome } from './runner/supervisor'
-import { loadProfiles, setupMergeProfiles, snapshotProfile } from './runner/profiles'
+import { loadProfiles, readMcpSetup, setupMergeProfiles, snapshotProfile } from './runner/profiles'
 import { randomSecret, readJson, writeJson } from './runner/files'
 import { connectMerge, disconnectMerge, mergeStatus, readMergeKey } from './merge'
 import { doctor } from './doctor'
@@ -35,6 +35,7 @@ Usage:
   openeval provider disconnect merge [--state <directory>]
   openeval runner setup --model <merge-model-id> --harnesses codex,claude-code,opencode,pi,grok-build,deep-agents
                     [--benchmark tblite-smoke|tblite --source <checkout>]
+                    [--mcp <servers.json> [--mcp-env <file>]]  (adds MCP servers; run once without --mcp for the no-MCP baseline)
   openeval runner test --profile <profile-id> [--state <directory>] [--harbor <executable>]
   openeval runner connect --url <deployment.convex.cloud> [--state <directory>]
   openeval runner start [--state <directory>] [--harbor <executable>] [--profiles <file>]
@@ -76,14 +77,15 @@ function openBrowser(url: string) {
 async function main() {
   if (Number(process.versions.node.split('.')[0]) < 22) throw new Error('OpenEval requires Node.js 22 or newer.')
   const { values, positionals } = parseArgs({
-    options: { plan: { type: 'boolean' }, yes: { type: 'boolean' }, name: { type: 'string' }, distro: { type: 'string' }, help: { type: 'boolean', short: 'h' }, version: { type: 'boolean', short: 'v' }, json: { type: 'boolean' }, strict: { type: 'boolean' }, port: { type: 'string' }, 'no-browser': { type: 'boolean' }, url: { type: 'string' }, state: { type: 'string' }, harbor: { type: 'string' }, profiles: { type: 'string' }, 'key-stdin': { type: 'boolean' }, model: { type: 'string' }, harnesses: { type: 'string' }, benchmark: { type: 'string' }, source: { type: 'string' }, profile: { type: 'string' } },
+    options: { plan: { type: 'boolean' }, yes: { type: 'boolean' }, name: { type: 'string' }, distro: { type: 'string' }, help: { type: 'boolean', short: 'h' }, version: { type: 'boolean', short: 'v' }, json: { type: 'boolean' }, strict: { type: 'boolean' }, port: { type: 'string' }, 'no-browser': { type: 'boolean' }, url: { type: 'string' }, state: { type: 'string' }, harbor: { type: 'string' }, profiles: { type: 'string' }, 'key-stdin': { type: 'boolean' }, model: { type: 'string' }, harnesses: { type: 'string' }, benchmark: { type: 'string' }, source: { type: 'string' }, profile: { type: 'string' }, mcp: { type: 'string' }, 'mcp-env': { type: 'string' } },
     allowPositionals: true,
   })
   if (values.version) { console.log(manifest.version); return }
   if (values.help || positionals[0] === 'help' || !positionals.length) { console.log(HELP); return }
   const [command, path, ...extra] = positionals
   if (values['key-stdin'] && !(command === 'provider' && path === 'connect')) throw new Error('--key-stdin applies only to provider connect.')
-  if ((values.model || values.benchmark || values.source) && !(command === 'runner' && path === 'setup')) throw new Error('--model, --benchmark and --source apply only to runner setup.')
+  if ((values.model || values.benchmark || values.source || values.mcp || values['mcp-env']) && !(command === 'runner' && path === 'setup')) throw new Error('--model, --benchmark, --source, --mcp and --mcp-env apply only to runner setup.')
+  if (values['mcp-env'] && !values.mcp) throw new Error('Use --mcp-env together with --mcp.')
   if (values.harnesses && !(command === 'setup' || command === 'runner' && path === 'setup')) throw new Error('--harnesses applies to setup or runner setup.')
   if (!values.benchmark !== !values.source) throw new Error('Use --benchmark and --source together.')
   if (values.profile && !(command === 'runner' && path === 'test')) throw new Error('--profile applies only to runner test.')
@@ -120,7 +122,7 @@ async function main() {
     const directory = resolve(values.state ?? join(homedir(), '.heval/runner'))
     if (path === 'setup') {
       if (!values.model || !values.harnesses || values.profiles || values.url) throw new Error('Use runner setup --model <exact-model-id> --harnesses codex,claude-code,opencode,pi,grok-build,deep-agents.')
-      const profiles = setupMergeProfiles(directory, join(dist, 'runner-task'), values.model, values.harnesses.split(',').map(h => h.trim()), values.benchmark ? { id: values.benchmark, source: values.source! } : undefined)
+      const profiles = setupMergeProfiles(directory, join(dist, 'runner-task'), values.model, values.harnesses.split(',').map(h => h.trim()), values.benchmark ? { id: values.benchmark, source: values.source! } : undefined, undefined, values.mcp ? readMcpSetup(resolve(values.mcp), values['mcp-env']) : undefined)
       console.log(`Created profiles: ${profiles.join(', ')}. No model calls made.\nTest each with: openeval runner test --profile <id> (uses model credits).`)
     } else if (path === 'test') {
       if (!values.profile || values.url) throw new Error('Use runner test --profile <profile-id>. This executes the profile using model credits.')
@@ -132,7 +134,7 @@ async function main() {
       if (existsSync(localRuns) && readdirSync(localRuns).some(id => existsSync(join(localRuns, id, 'cleanup-required.json')))) throw new Error('A previous local run needs cleanup. Use runner cleanup <run-id> with the same --state.')
       const runDirectory = join(directory, 'local-runs', randomSecret())
       snapshotProfile(profile, runDirectory)
-      writeJson(join(runDirectory, 'execution.json'), { claimId: randomSecret(), harbor: values.harbor ?? 'harbor', timeoutSeconds: profile.public.timeoutSeconds, envFile: profile.envFile, mergeConnection: profile.mergeConnection })
+      writeJson(join(runDirectory, 'execution.json'), { claimId: randomSecret(), harbor: values.harbor ?? 'harbor', timeoutSeconds: profile.public.timeoutSeconds, envFile: profile.envFile, mcpEnvFile: profile.mcpEnvFile, mergeConnection: profile.mergeConnection })
       console.log(`Running ${profile.public.agent} / ${profile.public.model}. Model-backed profiles use credits.\nLogs: ${runDirectory}`)
       await supervise(runDirectory)
       const outcome = readJson<Outcome>(join(runDirectory, 'outcome.json'))
