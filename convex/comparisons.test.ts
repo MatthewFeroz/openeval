@@ -91,3 +91,20 @@ test('MCP comparisons vary only the MCP setup, and other questions hold it fixed
   expect(detail.goal).toBe('mcp')
   expect(detail.cells.map(cell => cell.profile.mcp ?? null).sort()).toEqual([['context7'], null].sort())
 })
+
+test('workers can publish informational MCP tool lists, and invalid tool lists are rejected', async () => {
+  const { owner, poll, profiles } = await setup()
+  const mcpTools = {
+    probedAt: '2026-11-25T20:00:00.000Z',
+    servers: [{
+      name: 'context7', status: 'ok' as const, server: { name: 'Context7', version: '4.7.3' }, toolsHash: 'efa09f9ae72e',
+      tools: [{ name: 'query-docs', description: 'Query docs.', params: ['libraryId', 'query'], required: ['libraryId', 'query'] }],
+    }],
+  }
+  const valid = { ...profiles[0], id: 'codex-mcp', digest: key(51), mcp: ['context7'], mcpTools }
+  await poll([...profiles, valid])
+  const listed = await owner.query(api.runners.list)
+  expect(listed[0].profiles.find(p => p.id === 'codex-mcp')?.mcpTools).toEqual(mcpTools)
+  await expect(poll([{ ...profiles[0], id: 'codex-no-mcp', digest: key(52), mcpTools }])).rejects.toThrow('Invalid MCP tool list')
+  await expect(poll([{ ...valid, mcpTools: { ...mcpTools, servers: [{ name: 'other', status: 'ok' }] } }])).rejects.toThrow('Invalid MCP tool list')
+})

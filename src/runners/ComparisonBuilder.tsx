@@ -11,6 +11,7 @@ import { HARNESS } from '../harnesses'
 import catalog from '../harness-catalog.json'
 import { message, token } from '../reports/helpers'
 import { ComparisonReview } from './ComparisonReview'
+import { McpToolList } from './McpToolList'
 
 type Machine = FunctionReturnType<typeof api.runners.list>[number]
 type ManagedCatalog = FunctionReturnType<typeof api.managedComparisons.catalog>
@@ -126,6 +127,7 @@ export function ComparisonBuilder({ machines, managed, now, baseline, customBuil
     <section className="evaluation-run-summary" aria-label="Comparison review" data-tour="comparison-review"><h3>Review comparison</h3><p>{count === null ? 'Choose two configured combinations to preview the trial count.' : `${count} task attempts.`} {goal === 'harnesses' ? 'The model and task snapshot stay fixed. Review the configured serving routes below.' : goal === 'mcp' ? 'The harness, model, serving vendor and task snapshot stay fixed; only the MCP servers differ.' : 'The harness and task snapshot stay fixed; model routes are recorded separately.'}</p>
       {(execution === 'managed' || selected.some(p => p?.vendor === 'Provider default')) && <p className="report-notice">Gateway default routing may select different serving vendors. This comparison does not establish that the serving vendor stayed fixed.</p>}
       {execution === 'connected' ? <ComparisonReview profiles={selected.filter((p): p is RunnerProfile => !!p)} attempts={attempts} settings={settings} valid={!selectionError} /> : <ul>{pair.map(([agent, model], i) => <li key={i}>{label(agent)} · {model} · Gateway default route</li>)}</ul>}
+      {execution === 'connected' && goal === 'mcp' && selected.some(Boolean) && <McpToolList profiles={selected} workerName={machine?.name} />}
       {execution === 'managed' ? <p>Gateway enforces the temporary key’s ${Number.isFinite(budget) ? budget.toFixed(2) : '—'} model spend limit. In-flight usage can exceed the threshold. This is not an all-in dollar cap and excludes cloud compute. The worker has a separate lifetime limit that includes setup and cleanup.</p> : <p>This uses your worker’s provider credits. Worker deadlines are not dollar caps. Missing costs stay unknown.</p>}
       {changed && <label className="comparison-consent"><input type="checkbox" checked={reviewChanges} onChange={e => setReviewChanges(e.target.checked)} />I reviewed the changed worker approvals. The result will identify changed combinations and versions.</label>}
       <label className="comparison-consent"><input type="checkbox" checked={authorized} onChange={e => setConsent(e.target.checked ? consentFingerprint : false)} />I reviewed these combinations and authorize this evaluation’s compute and model use.</label>

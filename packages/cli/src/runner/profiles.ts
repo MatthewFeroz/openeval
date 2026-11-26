@@ -1,10 +1,11 @@
 import { existsSync, mkdirSync, cpSync, readFileSync, renameSync, rmSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
-import { validateProfiles, executionTimeoutSeconds, MAX_MCP_SERVERS, MCP_SERVER_NAME, type RunSettings, type RunnerProfile } from '../../../../src/runners/protocol'
+import { validateProfiles, executionTimeoutSeconds, MAX_MCP_SERVERS, MCP_SERVER_NAME, type McpTools, type RunSettings, type RunnerProfile } from '../../../../src/runners/protocol'
 import { BENCHMARKS, type Benchmark } from '../../../../src/runners/benchmarks'
 import { fingerprintDirectory, hashDirectory, randomSecret, readJson, sha256, writeJson, type TaskExecutionMetadata, type TaskFingerprint } from './files'
 import { mergeAgent, mergePath, mergeStatus, selectMergeHarnesses } from '../merge'
 import { bundledAdapters } from './bundled-adapters'
+import { probeMcpServers, type McpSnapshot } from './mcp-probe'
 
 type JsonObject = Record<string, unknown>
 type Descriptor = { id: string; title: string; benchmark: string; config: string; timeoutSeconds: number; envFile?: string; mcpEnvFile?: string; maxAttempts?: number; provider?: 'merge' }
@@ -56,6 +57,60 @@ export function validateMcpServers(value: unknown, harness: string): { names: st
   }
   if (new Set(names).size !== names.length) throw new Error('Give each MCP server a different name.')
   return { names: names.sort(), variables: [...variables].sort() }
+}
+
+/** Where a profile's latest MCP tool list is kept, next to its Harbor config. */
+export const mcpToolsPath = (config: string) => config.replace(/\.json$/, '') + '.mcp-tools.json'
+function readMcpTools(path: string, configuredNames: string[]): McpTools | undefined {
+  if (!existsSync(path) || readFileSync(path).length > 128_000) return undefined
+  try {
+    const saved = readJson<{ probedAt?: unknown; servers?: unknown }>(path)
+    if (typeof saved.probedAt !== 'string' || !saved.probedAt.trim() || saved.probedAt.length > 64 || !Array.isArray(saved.servers)) return undefined
+    const servers = (saved.servers as McpSnapshot[])
+      .filter(s => s && typeof s === 'object' && typeof s.name === 'string' && configuredNames.includes(s.name) && (s.status === 'ok' || s.status === 'error' || s.status === 'not-probed'))
+      .slice(0, MAX_MCP_SERVERS)
+      .map(s => ({
+        name: s.name, status: s.status,
+        ...(s.server && typeof s.server.name === 'string' && typeof s.server.version === 'string' ? { server: { name: s.server.name, version: s.server.version } } : {}),
+        ...(typeof s.toolsHash === 'string' ? { toolsHash: s.toolsHash } : {}),
+        ...(Array.isArray(s.details) ? { tools: s.details.slice(0, 100).filter(t => t && typeof t.name === 'string').map(t => ({ name: t.name, description: typeof t.description === 'string' ? t.description : '', params: Array.isArray(t.params) ? t.params.filter((p): p is string => typeof p === 'string').slice(0, 20) : [], required: Array.isArray(t.required) ? t.required.filter((r): r is string => typeof r === 'string').slice(0, 20) : [] })) } : {}),
+        ...(typeof s.error === 'string' ? { error: s.error } : {}),
+      }))
+    let result: McpTools = { probedAt: saved.probedAt, servers }
+    // Never let an oversized informational snapshot reject the profile on poll.
+    if (JSON.stringify(result).length > 48_000) {
+      result = { probedAt: saved.probedAt, servers: servers.map(s => s.tools ? { ...s, tools: s.tools.map(t => ({ ...t, description: t.description.slice(0, 120) })) } : s) }
+    }
+    if (JSON.stringify(result).length > 48_000) {
+      result = { probedAt: saved.probedAt, servers: servers.map(s => s.tools ? { ...s, tools: s.tools.slice(0, 25).map(t => ({ ...t, description: t.description.slice(0, 80) })) } : s) }
+    }
+    return JSON.stringify(result).length <= 48_000 ? result : undefined
+  } catch { return undefined }
+}
+
+/**
+ * Ask every MCP server in the registry for its tools and save the answers next
+ * to each profile, so a comparison can show them before it starts. A server
+ * that does not answer is recorded as such; this never blocks a run.
+ */
+export async function refreshMcpTools(file: string, profileIds?: string[]) {
+  const registry = readJson<{ profiles: Descriptor[] }>(file)
+  const pending = new Map<string, Promise<McpSnapshot[]>>()
+  for (const d of registry.profiles) {
+    if (profileIds && !profileIds.includes(d.id)) continue
+    try {
+      const config = resolve(dirname(file), d.config)
+      const agent = (readJson<JsonObject>(config).agents as JsonObject[] | undefined)?.[0]
+      if (!agent || agent.mcp_servers === undefined) continue
+      const { variables } = validateMcpServers(agent.mcp_servers, String(agent.name))
+      const envFile = d.mcpEnvFile && (isAbsolute(d.mcpEnvFile) ? d.mcpEnvFile : resolve(dirname(file), d.mcpEnvFile))
+      const env = variables.length && envFile ? readMcpEnv(envFile, variables) : {}
+      const key = JSON.stringify({ servers: agent.mcp_servers, env })
+      let snapshots = pending.get(key)
+      if (!snapshots) { snapshots = probeMcpServers(agent.mcp_servers as never, env); pending.set(key, snapshots) }
+      writeJson(mcpToolsPath(config), { probedAt: new Date().toISOString(), servers: await snapshots })
+    } catch { /* An invalid profile is reported by loadProfiles; keep refreshing the rest. */ }
+  }
 }
 
 /** Read only the requested variables from a KEY=VALUE env file. */
@@ -137,7 +192,9 @@ export function loadProfiles(file: string, connectionDirectory = dirname(file)):
     const digest = sha256(JSON.stringify({ description, config: { ...config, tasks: taskHashes }, taskExecutionMetadata, ...(adapter ? { adapter } : {}) }))
     let envFile: string | undefined
     if (d.envFile) { envFile = isAbsolute(d.envFile) ? d.envFile : resolve(dirname(file), d.envFile); if (!existsSync(envFile)) throw new Error('The profile envFile does not exist on this machine.') }
-    return { public: { ...description, digest }, config, taskPaths, taskHashes, taskExecutionMetadata, envFile, ...(mcpEnvFile ? { mcpEnvFile } : {}), ...(d.provider === 'merge' ? { mergeConnection: mergePath(connectionDirectory) } : {}) }
+    // The tool list is informational: it describes the servers but is not part of the approval digest.
+    const mcpTools = mcp ? readMcpTools(mcpToolsPath(path), mcp.names) : undefined
+    return { public: { ...description, digest, ...(mcpTools ? { mcpTools } : {}) }, config, taskPaths, taskHashes, taskExecutionMetadata, envFile, ...(mcpEnvFile ? { mcpEnvFile } : {}), ...(d.provider === 'merge' ? { mergeConnection: mergePath(connectionDirectory) } : {}) }
   })
   validateProfiles(loaded.map(p => p.public))
   return loaded

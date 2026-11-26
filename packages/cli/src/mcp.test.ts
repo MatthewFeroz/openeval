@@ -1,9 +1,10 @@
 import { afterEach, expect, test } from 'bun:test'
+import { createServer } from 'node:http'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { connectMerge } from './merge'
-import { loadProfiles, readMcpSetup, setupMergeProfiles, snapshotProfile, validateMcpServers } from './runner/profiles'
+import { loadProfiles, mcpToolsPath, readMcpSetup, refreshMcpTools, setupMergeProfiles, snapshotProfile, validateMcpServers } from './runner/profiles'
 import { readJson, writeJson } from './runner/files'
 import { supervise, type Outcome } from './runner/supervisor'
 import type { Catalog } from '../../../harbor/gateway/catalog'
@@ -86,4 +87,68 @@ test('MCP servers are checked before they reach Harbor', async () => {
   writeFileSync(env, 'UNRELATED=1\n')
   expect(() => setupMergeProfiles(directory, bundledTask, model, ['claude-code'], undefined, undefined, readMcpSetup(servers, env))).toThrow('does not set CONTEXT7_KEY')
   expect(() => setupMergeProfiles(directory, bundledTask, model, ['pi'], undefined, undefined, readMcpSetup(servers, env))).toThrow('MCP headers need')
+})
+
+test('refreshMcpTools records tool details without changing approval digests or leaking credentials', async () => {
+  let seenAuth = ''
+  const server = createServer((req, res) => {
+    seenAuth = String(req.headers.authorization ?? '')
+    let body = ''
+    req.on('data', chunk => { body += chunk })
+    req.on('end', () => {
+      const msg = JSON.parse(body || '{}') as { id?: number; method?: string }
+      res.setHeader('content-type', 'application/json')
+      if (msg.method === 'initialize') {
+        res.end(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { protocolVersion: '2025-06-18', serverInfo: { name: 'Context7', version: '4.7.3' } } }))
+      } else if (msg.method === 'tools/list') {
+        res.end(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { tools: [
+          { name: 'query-docs', description: '\nQuery up-to-date docs.\nSecond line omitted.', inputSchema: { type: 'object', properties: { libraryId: { type: 'string' }, query: { type: 'string' }, language: { type: 'string' } }, required: ['libraryId', 'query'] } },
+          { name: 'resolve-library-id', description: 'Resolve package name.', inputSchema: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] } },
+        ] } }))
+      } else {
+        res.statusCode = 202
+        res.end()
+      }
+    })
+  })
+  await new Promise<void>(done => server.listen(0, '127.0.0.1', done))
+  const port = (server.address() as { port: number }).port
+  try {
+    const directory = state()
+    await connectMerge(directory, 'merge-test-key', async () => catalog)
+    const serversFile = join(directory, 'servers.json'), envFile = join(directory, 'mcp.env')
+    writeFileSync(serversFile, JSON.stringify({ servers: [
+      { name: 'context7', transport: 'streamable-http', url: `http://127.0.0.1:${port}/mcp`, headers: { Authorization: 'Bearer ${CONTEXT7_KEY}' } },
+      files,
+    ] }))
+    writeFileSync(envFile, 'CONTEXT7_KEY="mcp-secret-value"\n')
+    const [id] = setupMergeProfiles(directory, bundledTask, model, ['claude-code'], undefined, undefined, readMcpSetup(serversFile, envFile))
+    const before = loadProfiles(join(directory, 'profiles.json')).find(p => p.public.id === id)!
+    expect(before.public.mcpTools).toBeUndefined()
+
+    await refreshMcpTools(join(directory, 'profiles.json'), [id])
+    expect(seenAuth).toBe('Bearer mcp-secret-value')
+    const after = loadProfiles(join(directory, 'profiles.json')).find(p => p.public.id === id)!
+    expect(after.public.digest).toBe(before.public.digest)
+    expect(after.public.mcpTools?.servers).toMatchObject([
+      {
+        name: 'context7', status: 'ok', server: { name: 'Context7', version: '4.7.3' },
+        tools: [
+          { name: 'query-docs', description: 'Query up-to-date docs.', params: ['libraryId', 'query', 'language'], required: ['libraryId', 'query'] },
+          { name: 'resolve-library-id', description: 'Resolve package name.', params: ['query'], required: ['query'] },
+        ],
+      },
+      { name: 'files', status: 'not-probed' },
+    ])
+    const savedRaw = readFileSync(mcpToolsPath(join(directory, `${id}.json`)), 'utf8')
+    expect(savedRaw).not.toContain('mcp-secret-value')
+    expect(savedRaw).not.toContain(`127.0.0.1:${port}`)
+    expect(JSON.stringify(after.public)).not.toContain('mcp-secret-value')
+
+    // A corrupt tool snapshot file never breaks profile loading.
+    writeFileSync(mcpToolsPath(join(directory, `${id}.json`)), '{not-json')
+    expect(loadProfiles(join(directory, 'profiles.json')).find(p => p.public.id === id)!.public.mcpTools).toBeUndefined()
+  } finally {
+    server.close()
+  }
 })

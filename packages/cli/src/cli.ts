@@ -8,7 +8,7 @@ import { homedir } from 'node:os'
 import { createInterface } from 'node:readline/promises'
 import { connectRunner, runDaemon, runnerStatus, checkRunner } from './runner/client'
 import { recoverRun, supervise, type Outcome } from './runner/supervisor'
-import { loadProfiles, readMcpSetup, setupMergeProfiles, snapshotProfile } from './runner/profiles'
+import { loadProfiles, readMcpSetup, refreshMcpTools, setupMergeProfiles, snapshotProfile } from './runner/profiles'
 import { randomSecret, readJson, writeJson } from './runner/files'
 import { connectMerge, disconnectMerge, mergeStatus, readMergeKey } from './merge'
 import { doctor } from './doctor'
@@ -123,6 +123,7 @@ async function main() {
     if (path === 'setup') {
       if (!values.model || !values.harnesses || values.profiles || values.url) throw new Error('Use runner setup --model <exact-model-id> --harnesses codex,claude-code,opencode,pi,grok-build,deep-agents.')
       const profiles = setupMergeProfiles(directory, join(dist, 'runner-task'), values.model, values.harnesses.split(',').map(h => h.trim()), values.benchmark ? { id: values.benchmark, source: values.source! } : undefined, undefined, values.mcp ? readMcpSetup(resolve(values.mcp), values['mcp-env']) : undefined)
+      if (values.mcp) { await refreshMcpTools(join(directory, 'profiles.json'), profiles); console.log('Recorded the MCP servers\' tools for the comparison builder.') }
       console.log(`Created profiles: ${profiles.join(', ')}. No model calls made.\nTest each with: openeval runner test --profile <id> (uses model credits).`)
     } else if (path === 'test') {
       if (!values.profile || values.url) throw new Error('Use runner test --profile <profile-id>. This executes the profile using model credits.')

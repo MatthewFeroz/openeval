@@ -12,7 +12,7 @@ import { api } from '../../../../convex/_generated/api'
 import type { Id } from '../../../../convex/_generated/dataModel'
 import { randomSecret, readJson, writeJson, sha256 } from './files'
 import { readReviewedEvidence } from './evidence'
-import { initializeProfiles, loadProfiles, snapshotProfile, requestedProfile } from './profiles'
+import { initializeProfiles, loadProfiles, refreshMcpTools, snapshotProfile, requestedProfile } from './profiles'
 import { processKey, supervisorAlive, type Outcome } from './supervisor'
 import type { RunMonitoring } from '../../../../src/runners/monitoring'
 
@@ -85,6 +85,8 @@ export async function runDaemon(options: { directory: string; harbor: string; su
   let evidenceCursor = 0
   const reviewedUploads = process.env.HEVAL_CAPTURE_REVIEWED_EVIDENCE === '1'
   event(`Connected machine: ${connection.name}. Closing the browser does not stop evaluations.`)
+  // Refresh MCP tool lists in the background; profiles pick them up on a later poll.
+  void refreshMcpTools(options.profileFile ?? join(directory, 'profiles.json')).catch(() => undefined)
   if (reviewedUploads) event('Reviewed artifact upload enabled. Only explicit reviewed-evidence.json files are uploaded, privately.')
   try {
     while (!stopped && !options.signal?.aborted) {
