@@ -248,6 +248,15 @@ token, secret or cookie headers.
 - Remote servers need network access from the task container.
 - Claude Code and Codex support headers. OpenCode, Pi, Terminus 2 and Grok Build
   support MCP servers without headers. Deep Agents does not support MCP.
+- When a run starts, the worker connects to each remote MCP server and records
+  what it reports: its own name and version, its tool names, and a hash of the
+  tool definitions (names, descriptions and input schemas) the agent sees, for
+  example `context7: Context7 4.7.3, 2 tools #efa09f9ae72e`. Hosted servers can
+  change between runs; a different version or hash means a different
+  treatment. `stdio` servers start inside the task container and are not probed.
+- Each trial records how many MCP tool calls the agent made, from Claude Code's
+  and Codex's logs. Other harnesses show the count as not recorded. A setup that
+  made no calls was available but unused.
 - Harness and model comparisons use only profiles without MCP servers, so MCP
   can't confound them. Results label each stack with its servers, such as
   `claude-code / claude-sonnet-5 + context7`.

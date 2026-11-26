@@ -45,6 +45,8 @@ export function parseStoredReport(text: string): ReportData {
     if (raw.costSource != null && raw.costSource !== 'reported' && raw.costSource !== 'derived') throw new Error('Invalid cost source.')
     row.costSource = (raw.costSource as string | null) ?? null
     if (raw.mcp != null) row.mcp = label(raw.mcp, 'MCP servers')
+    if (raw.mcpServers != null) row.mcpServers = label(raw.mcpServers, 'MCP server versions')
+    if (raw.mcpCalls != null) row.mcpCalls = number(raw.mcpCalls, 'MCP calls')
     row.startedAt = typeof raw.startedAt === 'string' && Number.isFinite(Date.parse(raw.startedAt)) ? new Date(raw.startedAt).toISOString() : null
     return row as TrialRow
   })

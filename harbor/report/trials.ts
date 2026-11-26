@@ -45,6 +45,31 @@ function findReward(node: unknown): number | null {
 }
 
 /**
+ * MCP tool calls the agent made, or null where the harness's log format is not
+ * known. Claude Code's stream log names MCP tools `mcp__<server>__<tool>`;
+ * Codex's JSON log records each call as an `mcp_tool_call` item.
+ */
+function mcpCalls(dir: string, agent: string): number | null {
+  const log = join(dir, 'agent', agent === 'claude-code' ? 'claude-code.txt' : agent === 'codex' ? 'codex.txt' : '')
+  if (!['claude-code', 'codex'].includes(agent) || !existsSync(log)) return null
+  const ids = new Set<string>()
+  for (const line of readFileSync(log, 'utf8').split('\n')) {
+    if (!line.startsWith('{')) continue
+    let event: Json
+    try { event = JSON.parse(line) as Json } catch { continue }
+    if (agent === 'codex') {
+      const item = event.type === 'item.completed' ? event.item as Json | undefined : undefined
+      if (item?.type === 'mcp_tool_call') ids.add(String(item.id ?? ids.size))
+      continue
+    }
+    const content = event.type === 'assistant' ? ((event.message as Json | undefined)?.content) : null
+    if (!Array.isArray(content)) continue
+    for (const block of content as Json[]) if (block?.type === 'tool_use' && String(block.name).startsWith('mcp__')) ids.add(String(block.id ?? ids.size))
+  }
+  return ids.size
+}
+
+/**
  * `requireComplete` rejects missing results; `verifiedOnly` skips unfinished terminal artifacts.
  * `proxyLog` is the vendor proxy's JSONL log for this job, used to count model
  * requests per attempt; see countRequests() for when that attribution holds.
@@ -144,6 +169,7 @@ export function readTrial(dir: string, catalog?: Catalog | null, opts: ReadOptio
     costSource,
     startedAt: str(res.started_at),
     error,
+    ...(mcp ? { mcpCalls: mcpCalls(dir, agent) } : {}),
     ...readTurns(dir, agent, kwargs),
     modelRequests: null,
     modelRequestErrors: null,

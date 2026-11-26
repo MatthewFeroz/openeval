@@ -179,6 +179,15 @@ function summaryTiles(rows: TrialRow[]): string {
     </div>`
 }
 
+/** Which MCP server versions a stack ran against, and how often the agent called them. */
+function mcpLine(rows: TrialRow[]): string {
+  if (!rows.some((r) => r.mcp)) return ''
+  const servers = [...new Set(rows.flatMap((r) => (r.mcpServers ? [r.mcpServers] : [])))]
+  const counted = rows.every((r) => typeof r.mcpCalls === 'number')
+  const calls = counted ? rows.reduce((sum, r) => sum + (r.mcpCalls ?? 0), 0) : null
+  return `<small>${esc(servers.join('; ') || 'MCP server versions not recorded')} &middot; ${calls === null ? 'MCP calls not counted' : plural(calls, 'MCP call')}</small>`
+}
+
 /** One harness and model with several stacks, such as MCP setups: compare stacks, not models. */
 const byStack = (rows: TrialRow[]) => new Set(rows.map((r) => r.agent)).size === 1 && new Set(rows.map((r) => r.stack)).size > new Set(rows.map((r) => r.modelShort)).size
 
@@ -198,6 +207,7 @@ function modelTiles(rows: TrialRow[]): string {
         <div class="stat-head"><span class="eyebrow"><i class="swatch" style="background:${dark.series[i % 4]}"></i>${esc(m)}</span><span class="pill ${rate >= 0.5 ? 'pass' : 'fail'}"><i></i>${plural(ts.length, 'trial')}</span></div>
         <strong>${pct(rate)}</strong>
         <small>${plural(ts.length, 'trial')} on ${esc(harnesses.join(', '))}${cost !== null ? ` &middot; ${formatValue(cost, 'costUsd')} mean${costs.length < ts.length ? ` (${ts.length - costs.length} unpriced)` : ''}` : ' &middot; cost not exposed'}</small>
+        ${mcpLine(ts)}
         <div class="bar"><i style="width:${rate * 100}%"></i></div>
       </div>`
     })
