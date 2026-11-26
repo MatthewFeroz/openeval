@@ -56,9 +56,10 @@ test('failed validation preserves the old connection without leaking upstream er
 
 test('routing preserves the full gateway model ID and uses Harbor adapter-specific settings', () => {
   expect(mergeAgent('codex', model)).toMatchObject({ model_name: model, env: { OPENAI_BASE_URL: 'https://api-gateway.merge.dev/v1/openai' }, kwargs: { config: { model_provider: 'merge-gateway', model_providers: { 'merge-gateway': { supports_websockets: false, wire_api: 'responses', env_key: 'OPENAI_API_KEY' } } } } })
-  expect(mergeAgent('claude-code', model)).toMatchObject({ model_name: model, env: { ANTHROPIC_BASE_URL: 'https://api-gateway.merge.dev/v1/anthropic' } })
+  expect(mergeAgent('claude-code', model)).toMatchObject({ model_name: model, skip_model_parsing: true, env: { ANTHROPIC_BASE_URL: 'https://api-gateway.merge.dev/v1/anthropic' } })
   expect(mergeAgent('opencode', model).model_name.split('/').slice(1).join('/')).toBe(model)
   expect(mergeAgent('pi', model)).toMatchObject({ model_name: `openai/${model}`, kwargs: { model_api: 'openai-completions', version: '0.84.4' } })
+  expect(mergeAgent('grok-build', model)).toMatchObject({ kwargs: { disable_web_search: true } })
   expect(() => mergeAgent('unknown', model)).toThrow('Merge supports')
 })
 
