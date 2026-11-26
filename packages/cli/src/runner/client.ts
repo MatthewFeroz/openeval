@@ -124,7 +124,7 @@ export async function runDaemon(options: { directory: string; harbor: string; su
               try { snapshotProfile(requestedProfile(profile, active.requestedAttempts, active.runSettings), runDir) }
               catch { await cloud.mutation(api.runners.finish, { ...args, status: 'failed', message: 'Task files changed or could not be copied. Review the machine profile before starting again.' }); continue }
             }
-            writeJson(executionPath, { claimId: active.claimId, harbor: options.harbor, timeoutSeconds: executionTimeoutSeconds(profile.public, active.requestedAttempts, active.runSettings), envFile: profile.envFile, mergeConnection: profile.mergeConnection })
+            writeJson(executionPath, { claimId: active.claimId, harbor: options.harbor, timeoutSeconds: executionTimeoutSeconds(profile.public, active.requestedAttempts, active.runSettings), envFile: profile.envFile, mcpEnvFile: profile.mcpEnvFile, mergeConnection: profile.mergeConnection })
           }
           if (readJson<{ claimId: string }>(executionPath).claimId !== active.claimId) throw new Error('Local execution identity differs from the cloud claim. Inspect this state directory.')
           rmSync(pendingPath, { force: true })

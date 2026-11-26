@@ -177,6 +177,10 @@ openeval runner setup --benchmark tblite-smoke --source ~/.heval/benchmarks/open
   --model YOUR_MODEL_ID --harnesses codex,claude-code,pi
 ```
 
+To compare MCP setups, add `--mcp servers.json` (and `--mcp-env tokens.env` when
+headers reference `${NAME}` variables) to create a second profile that gives the
+harness those MCP servers. See [MCP setups](https://github.com/MatthewFeroz/openeval/blob/main/docs/connected-runners.md#mcp-setups).
+
 On Linux with Harbor and Docker installed, test the full local execution path:
 
 ```sh

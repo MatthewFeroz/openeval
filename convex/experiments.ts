@@ -4,7 +4,7 @@ import type { MutationCtx } from './_generated/server'
 import { identity } from './reportAccess'
 import { RUNNER_ONLINE_MS, terminalStates } from '../src/runners/protocol'
 import { comparisonGoalValidator, runSettingsValidator } from './runnerValidators'
-import { validateComparison, sameSettings } from '../src/runners/comparison'
+import { validateComparison, sameSettings, profileIdentity } from '../src/runners/comparison'
 import { executionTimeoutSeconds } from '../src/runners/protocol'
 import { materializeExperimentReport } from './experimentReports'
 import { assertReportCapacity } from './reportCapacity'
@@ -54,7 +54,7 @@ export async function createExperiment(ctx: MutationCtx, owner: string, args: In
   for (const model of new Set(profiles.map(p => p.model))) {
     if (new Set(profiles.filter(p => p.model === model).map(p => p.vendor)).size !== 1) throw new ConvexError('Use the same vendor across harnesses for each model.')
   }
-  if (new Set(profiles.map(p => `${p.agent}/${p.model}/${p.vendor}`)).size !== profiles.length) throw new ConvexError('Each harness and model combination must be unique.')
+  if (new Set(profiles.map(profileIdentity)).size !== profiles.length) throw new ConvexError('Each harness, model and MCP setup combination must be unique.')
   if (!Number.isSafeInteger(profiles.reduce((sum,p) => sum + p.tasks * args.attempts, 0))) throw new ConvexError('Trial count exceeds safe numeric precision.')
   const history = await ctx.db.query('runnerRuns').withIndex('by_owner', q => q.eq('owner', owner)).take(200)
   const check = args.checkWorker ? machine.profiles.find(p => p.setupCheck && p.agent === 'oracle') : undefined

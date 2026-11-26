@@ -39,7 +39,20 @@ export type TrialRow = {
    * across trials.
    */
   vendor: string | null
-  /** `agent / modelShort` - the unit the protocol calls a stack. */
+  /**
+   * Names of the MCP servers the harness was given for this trial, sorted and
+   * comma-separated, e.g. `context7, github`. Absent or null when it had none.
+   * Servers a task itself declares are part of the task, not counted here.
+   */
+  mcp?: string | null
+  /**
+   * What each MCP server reported when the run started: its own name and
+   * version, tool count, and a hash of the tool definitions the agent saw.
+   */
+  mcpServers?: string | null
+  /** MCP tool calls the agent made in this trial; null where not counted for the harness. */
+  mcpCalls?: number | null
+  /** `agent / modelShort`, plus ` + <mcp>` when MCP servers were added - the unit the protocol calls a stack. */
   stack: string
   /** Verifier reward, 0..1. */
   reward: number

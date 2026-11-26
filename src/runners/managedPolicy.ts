@@ -1,7 +1,7 @@
 import { validateComparison, type ComparisonGoal } from './comparison'
 import { BENCHMARKS } from './benchmarks'
 
-export type ManagedSpec = { goal: Exclude<ComparisonGoal, 'custom'>; harnesses: string[]; models: string[]; budgetUsd: number; minutes: number }
+export type ManagedSpec = { goal: Exclude<ComparisonGoal, 'custom' | 'mcp'>; harnesses: string[]; models: string[]; budgetUsd: number; minutes: number }
 export type ManagedPolicy = { snapshot: string; benchmark: 'tblite-smoke'; taskSet: string; tasks: number; models: string[]; harnesses: string[]; maxBudgetUsd: number; maxMinutes: number }
 
 /** An operator explicitly approves one task snapshot and its tested worker image. */

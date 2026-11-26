@@ -8,9 +8,11 @@ import { readJson, writeJson } from './files'
 import { mergeEnvironment } from '../merge'
 import { sampleMonitoring } from './monitoring'
 import { bundledAdapters } from './bundled-adapters'
+import { readMcpEnv, validateMcpServers } from './profiles'
+import { describeSnapshots, probeMcpServers, type McpSnapshot } from './mcp-probe'
 
 const exec = promisify(execFile)
-export type Execution = { claimId: string; harbor: string; timeoutSeconds: number; envFile?: string; mergeConnection?: string }
+export type Execution = { claimId: string; harbor: string; timeoutSeconds: number; envFile?: string; mcpEnvFile?: string; mergeConnection?: string }
 export type Outcome = { status: 'completed' | 'failed' | 'cancelled' | 'interrupted'; json?: string; message?: string }
 export function processKey(pid: number): string | null {
   try {
@@ -68,6 +70,15 @@ export async function recoverRun(directory: string) {
   await cleanupRun(directory)
 }
 
+/** Verified rows, labelled with the MCP snapshot taken when the run started. */
+function exportRows(directory: string) {
+  const raw = exportJob(join(directory, 'jobs/evaluation'), null, { verifiedOnly: true })
+  const path = join(directory, 'mcp-snapshot.json')
+  if (!existsSync(path)) return raw
+  const label = describeSnapshots(readJson<McpSnapshot[]>(path))
+  return { ...raw, rows: raw.rows.map(row => row.mcp ? { ...row, mcpServers: label } : row) }
+}
+
 export async function supervise(directory: string) {
   const input = readJson<Execution>(join(directory, 'execution.json'))
   // This marker is never removed: the same claim can never start twice, even after a crash.
@@ -91,6 +102,15 @@ export async function supervise(directory: string) {
       const config = readJson<{ agents: { name: string }[] }>(join(directory, 'harbor.json'))
       Object.assign(env, mergeEnvironment(input.mergeConnection, config.agents[0].name))
     }
+    // Harbor fills `${NAME}` in MCP headers from its environment. Pass only the
+    // variables this run's headers reference, read at launch.
+    const agent = readJson<{ agents?: { name: string; mcp_servers?: unknown }[] }>(join(directory, 'harbor.json')).agents?.[0]
+    const mcpVariables = agent?.mcp_servers === undefined ? [] : validateMcpServers(agent.mcp_servers, agent.name).variables
+    const mcpEnv = mcpVariables.length ? input.mcpEnvFile ? readMcpEnv(input.mcpEnvFile, mcpVariables) : undefined : {}
+    if (!mcpEnv) throw new Error('MCP headers need an MCP env file.')
+    Object.assign(env, mcpEnv)
+    // Record which MCP server versions and tool definitions this run evaluates.
+    if (Array.isArray(agent?.mcp_servers)) writeJson(join(directory, 'mcp-snapshot.json'), await probeMcpServers(agent.mcp_servers as never, mcpEnv))
     const args = ['run', '--config', join(directory, 'harbor.json')]
     if (input.envFile) args.push('--env-file', input.envFile)
     child = spawn(input.harbor, args, { cwd: directory, env: { ...env, PYTHONPATH: bundledAdapters(), HARBOR_TELEMETRY: '0' }, detached: true, stdio: ['ignore', log, log] })
@@ -116,7 +136,7 @@ export async function supervise(directory: string) {
     else if (timedOut) outcome = { status: 'failed', message: 'The approved evaluation time limit was reached. Inspect local logs.' }
     else {
       try {
-        const raw = exportJob(join(directory, 'jobs/evaluation'), null, { verifiedOnly: true })
+        const raw = exportRows(directory)
         const expected = readJson<{ n_attempts: number; tasks: unknown[] }>(join(directory, 'harbor.json'))
         const failed = code !== 0 || raw.rows.some(r => r.error) || raw.rows.length !== expected.tasks.length * expected.n_attempts
         const json = JSON.stringify(parseReport(JSON.stringify(raw)))
@@ -135,7 +155,7 @@ export async function supervise(directory: string) {
     // scores for unfinished tasks; export only complete verifier outcomes.
     if (!outcome.json) {
       try {
-        const raw = exportJob(join(directory, 'jobs/evaluation'), null, { verifiedOnly: true })
+        const raw = exportRows(directory)
         if (raw.rows.length) outcome.json = JSON.stringify(parseReport(JSON.stringify(raw)))
       } catch { /* Keep the terminal outcome even when no report can be exported. */ }
     }

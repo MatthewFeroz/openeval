@@ -73,3 +73,21 @@ test('combined comparisons retain private lifecycle and reviewed evidence with s
   await owner.mutation(api.reportEvidence.setPublished, { id: report.evidence[0].id, reviewed: true, published: true })
   expect((await t.query(api.reports.shared, { token: key(1000) }))!.evidence).toHaveLength(1)
 })
+
+test('MCP comparisons vary only the MCP setup, and other questions hold it fixed', async () => {
+  const { owner, args, poll, profiles } = await setup()
+  const base = { ...profiles[0], id: 'codex-plain', digest: key(31) }
+  const withMcp = { ...profiles[0], id: 'codex-mcp', digest: key(32), mcp: ['context7'] }
+  const otherMcp = { ...profiles[0], id: 'codex-other', digest: key(33), mcp: ['context7'] }
+  await poll([...profiles, base, withMcp, otherMcp])
+  const pick = (...items: RunnerProfile[]) => items.map(p => ({ id: p.id, digest: p.digest }))
+  const mcp = { ...args, title: 'MCP comparison', goal: 'mcp' as const }
+  await expect(owner.mutation(api.experiments.create, { ...mcp, requestId: key(40), profiles: pick(withMcp, otherMcp) })).rejects.toThrow('two different MCP setups')
+  await expect(owner.mutation(api.experiments.create, { ...mcp, requestId: key(41), profiles: pick(profiles[1], withMcp) })).rejects.toThrow('one harness')
+  await expect(owner.mutation(api.experiments.create, { ...args, requestId: key(42), profiles: pick(profiles[1], withMcp) })).rejects.toThrow('same MCP setup')
+  await expect(owner.mutation(api.experiments.create, { ...args, goal: 'custom', requestId: key(43), profiles: pick(withMcp, otherMcp) })).rejects.toThrow('must be unique')
+  const id = await owner.mutation(api.experiments.create, { ...mcp, requestId: key(44), profiles: pick(base, withMcp) })
+  const detail = await owner.query(api.experiments.get, { id })
+  expect(detail.goal).toBe('mcp')
+  expect(detail.cells.map(cell => cell.profile.mcp ?? null).sort()).toEqual([['context7'], null].sort())
+})

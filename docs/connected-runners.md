@@ -213,6 +213,54 @@ source checkout to install the full 100-task set. Both TBLite entries are previe
 benchmarks: their pinned content is installable, but a full OpenEval evaluation has
 not yet validated them.
 
+### MCP setups
+
+**Compare MCP setups** runs one harness and model on the same tasks with two
+different sets of MCP servers, for example none against Context7. Define the
+servers on the worker in a JSON file, in Harbor's MCP server format:
+
+```json
+{ "servers": [
+  { "name": "context7", "transport": "streamable-http", "url": "https://mcp.context7.com/mcp" },
+  { "name": "github", "transport": "streamable-http", "url": "https://api.githubcopilot.com/mcp/",
+    "headers": { "Authorization": "Bearer ${GITHUB_TOKEN}" } }
+] }
+```
+
+Then run setup once without `--mcp` for the baseline and once with it:
+
+```sh
+openeval runner setup --benchmark tblite-smoke --source ~/.heval/benchmarks/openthoughts-tblite \
+  --model YOUR_MODEL_ID --harnesses claude-code
+openeval runner setup --benchmark tblite-smoke --source ~/.heval/benchmarks/openthoughts-tblite \
+  --model YOUR_MODEL_ID --harnesses claude-code --mcp ~/mcp/servers.json --mcp-env ~/mcp/tokens.env
+```
+
+Each setup becomes its own approved profile. OpenEval shows only the server
+names; URLs, commands and tokens stay on the worker. Write credentials in
+headers as `${NAME}` and put their values in the `--mcp-env` file (`NAME=value`
+lines). The runner passes Harbor only the variables those headers reference,
+when a run starts. Setup refuses literal credentials in `Authorization`, key,
+token, secret or cookie headers.
+
+- `stdio` servers run their `command` inside the task container, so the task
+  image must provide it (for example `npx` needs Node.js).
+- Remote servers need network access from the task container.
+- Claude Code and Codex support headers. OpenCode, Pi, Terminus 2 and Grok Build
+  support MCP servers without headers. Deep Agents does not support MCP.
+- When a run starts, the worker connects to each remote MCP server and records
+  what it reports: its own name and version, its tool names, and a hash of the
+  tool definitions (names, descriptions and input schemas) the agent sees, for
+  example `context7: Context7 4.7.3, 2 tools #efa09f9ae72e`. Hosted servers can
+  change between runs; a different version or hash means a different
+  treatment. `stdio` servers start inside the task container and are not probed.
+- Each trial records how many MCP tool calls the agent made, from Claude Code's
+  and Codex's logs. Other harnesses show the count as not recorded. A setup that
+  made no calls was available but unused.
+- Harness and model comparisons use only profiles without MCP servers, so MCP
+  can't confound them. Results label each stack with its servers, such as
+  `claude-code / claude-sonnet-5 + context7`.
+
 ### Run deadlines
 
 `timeoutSeconds` is the deadline budget for all tasks at the profile's configured
